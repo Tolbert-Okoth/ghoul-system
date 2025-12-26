@@ -22,12 +22,17 @@ const axios = require('axios');
 const Parser = require('rss-parser'); 
 
 const app = express();
+
 const server = http.createServer(app);
 
 // ------------------------------------------
 // 🛡️ IRON DOME SECURITY PROTOCOLS
 // ------------------------------------------
 app.use(helmet());
+
+app.set('trust proxy', 1);
+
+
 
 // ALLOWED ORIGINS: Add your future Vercel URL here once you have it
 const allowedOrigins = ['http://localhost:3000', 'http://127.0.0.1:3000'];
