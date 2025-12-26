@@ -1,4 +1,7 @@
-requests
-beautifulsoup4
-vaderSentiment
-lxml
+flask
+flask-cors
+groq
+yfinance
+pandas
+python-dotenv
+gunicorn
