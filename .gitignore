@@ -1,0 +1,13 @@
+# --- Secrets (NEVER UPLOAD) ---
+.env
+backend-node/.env
+backend-python/.env
+
+# --- Heavy Dependencies (Render will install these) ---
+node_modules/
+backend-node/node_modules/
+backend-python/venv/
+backend-python/__pycache__/
+
+# --- Misc ---
+.DS_Store
