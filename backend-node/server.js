@@ -54,7 +54,7 @@ app.use('/api', limiter);
 app.use(express.json());
 
 // ------------------------------------------
-// 🚦 ROUTES & CONTROLLERS (The Fix)
+// 🚦 ROUTES & CONTROLLERS
 // ------------------------------------------
 
 // 1. HEALTH CHECK (UptimeRobot Target)
@@ -63,7 +63,6 @@ app.get('/health', (req, res) => {
 });
 
 // 2. CONNECT THE SIGNAL ROUTES (Fixes 500 Error)
-// This hands off "/api/v1/intel" requests to your new signalController.js
 app.use('/api/v1/intel', signalRoutes);
 
 // ------------------------------------------
@@ -98,15 +97,20 @@ let chartCache = {};
 async function processSignal(headline, symbol, currentPrice, isTechnicalCheck = false) {
     try {
         if (!isTechnicalCheck) {
-            const existing = await pool.query("SELECT id FROM trading_signals WHERE headline = $1", [headline]);
-            if (existing.rows.length > 0) return false; 
+            // Check if headline exists to prevent duplicates
+            // NOTE: We catch errors here silently to prevent crash if table is missing during startup
+            try {
+                const existing = await pool.query("SELECT id FROM trading_signals WHERE headline = $1", [headline]);
+                if (existing.rows.length > 0) return false; 
+            } catch (dbErr) {
+                console.log("⚠️ DB Table might be missing. Skipping duplicate check.");
+            }
         }
         
         const logPrefix = isTechnicalCheck ? "[❤️ HEARTBEAT]" : "[📰 NEWS]";
         console.log(`${logPrefix} ${symbol}: Analyzing...`);
         
         // --- CLOUD LINK: Connect to Python Service ---
-        // Uses the ENV variable we set in Render
         const brainURL = process.env.PYTHON_MICROSERVICE_URL 
             ? `${process.env.PYTHON_MICROSERVICE_URL}/analyze` 
             : 'http://127.0.0.1:5000/analyze';
@@ -163,12 +167,39 @@ async function runSmartScan() {
 app.get('/api/force-scan', async (req, res) => {
     console.log("[MANUAL OVERRIDE] 🔴 Force triggering AI Scan...");
     try {
-        // Run the scan immediately without waiting for timer
         runSmartScan(); 
-        res.json({ message: "Manual scan triggered. Check Render logs for [NEWS] or [HEARTBEAT] entries." });
+        res.json({ message: "Manual scan triggered. Check Render logs." });
     } catch (error) {
         console.error("[MANUAL FAIL]", error);
         res.status(500).json({ error: error.message });
+    }
+});
+
+// ------------------------------------------
+// 🛠️ EMERGENCY DATABASE FIX TOOL
+// ------------------------------------------
+app.get('/setup-db', async (req, res) => {
+    try {
+        const createTableQuery = `
+            CREATE TABLE IF NOT EXISTS trading_signals (
+                id SERIAL PRIMARY KEY,
+                symbol VARCHAR(10),
+                headline TEXT,
+                sentiment_score DECIMAL,
+                confidence DECIMAL,
+                verdict VARCHAR(20),
+                status VARCHAR(20),
+                reasoning TEXT,
+                entry_price DECIMAL,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        `;
+        await pool.query(createTableQuery);
+        res.send("✅ SUCCESS: Table 'trading_signals' created! You can now run the scan.");
+    } catch (error) {
+        console.error(error);
+        res.status(500).send("❌ ERROR: " + error.message);
     }
 });
 
