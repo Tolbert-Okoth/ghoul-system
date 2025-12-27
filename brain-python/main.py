@@ -1,9 +1,13 @@
 import os
+import re
+import json
+import logging
 from pathlib import Path
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from groq import Groq 
+import google.generativeai as genai
 import yfinance as yf
 import pandas as pd
 
@@ -12,15 +16,30 @@ import pandas as pd
 env_path = Path(__file__).parent.parent / 'backend-node' / '.env'
 load_dotenv(dotenv_path=env_path)
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-if not GROQ_API_KEY:
-    print(f"⚠️ WARNING: Could not find GROQ_API_KEY in {env_path}")
+# Logging Setup
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 CORS(app)
 
-# Initialize Groq Client
-client = Groq(api_key=GROQ_API_KEY)
+# 1. SETUP GROQ (Primary Brain)
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+groq_client = None
+if GROQ_API_KEY:
+    groq_client = Groq(api_key=GROQ_API_KEY)
+else:
+    logger.warning("⚠️ GROQ_API_KEY missing. Primary brain offline.")
+
+# 2. SETUP GEMINI (Backup Brain)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+gemini_model = None
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+    gemini_model = genai.GenerativeModel('gemini-1.5-flash')
+else:
+    logger.warning("⚠️ GEMINI_API_KEY missing. Backup brain offline.")
+
 
 # --- LIGHTWEIGHT QUANT ENGINE (Pandas Only) ---
 def get_technicals(symbol):
@@ -78,7 +97,54 @@ def get_technicals(symbol):
         print(f"Stats Error: {e}")
         return None
 
-# --- AI ANALYST (GROQ / LLAMA 3.3) ---
+# --- AI HELPER FUNCTIONS ---
+
+def ask_groq(system_prompt, user_prompt):
+    """Attempt to get analysis from Groq (Llama 3)."""
+    if not groq_client: return None
+    try:
+        completion = groq_client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            model="llama-3.3-70b-versatile",
+            temperature=0.3,
+            response_format={"type": "json_object"} # Force JSON mode
+        )
+        return completion.choices[0].message.content
+    except Exception as e:
+        logger.error(f"❌ GROQ FAILED (Likely Rate Limit): {str(e)}")
+        return None  # Signal failure so we can switch to Gemini
+
+def ask_gemini(system_prompt, user_prompt):
+    """Attempt to get analysis from Gemini (Flash)."""
+    if not gemini_model: return None
+    try:
+        # Combine prompts for Gemini
+        full_prompt = f"{system_prompt}\n\nUSER INPUT: {user_prompt}"
+        response = gemini_model.generate_content(full_prompt)
+        # Clean markdown syntax often returned by Gemini
+        text = response.text.replace("```json", "").replace("```", "").strip()
+        return text
+    except Exception as e:
+        logger.error(f"❌ GEMINI FAILED: {str(e)}")
+        return None
+
+def clean_and_parse_json(content):
+    """Robust JSON extraction from AI response."""
+    try:
+        # Remove code blocks if present
+        clean_content = re.sub(r'```json\s*|\s*```', '', content)
+        # Find the JSON object
+        match = re.search(r'\{.*\}', clean_content, re.DOTALL)
+        if match:
+            return json.loads(match.group(0))
+        return None
+    except Exception:
+        return None
+
+# --- MAIN ROUTE ---
 @app.route('/analyze', methods=['POST'])
 def analyze():
     data = request.json
@@ -89,19 +155,21 @@ def analyze():
     print(f"🧠 ANALYZING [{mode.upper()}]: {symbol}")
 
     # 1. Fetch Technicals
-    techs = get_technicals(symbol)
+    technicals = get_technicals(symbol)
     
     tech_context = "MARKET DATA: UNAVAILABLE"
-    if techs:
+    if technicals:
         tech_context = f"""
         LIVE MARKET DATA FOR {symbol}:
-        - PRICE: ${techs['price']}
-        - RSI (14): {techs['rsi']} (>70 Overbought, <30 Oversold)
-        - MOMENTUM (MACD): {techs['macd_trend']}
-        - BANDS: {techs['bb_status']}
+        - PRICE: ${technicals['price']}
+        - RSI (14): {technicals['rsi']} (>70 Overbought, <30 Oversold)
+        - MOMENTUM (MACD): {technicals['macd_trend']}
+        - BANDS: {technicals['bb_status']}
         """
 
     # 2. Select the Correct Prompt based on Mode
+    system_instruction = "You are a JSON-only financial trading bot."
+    
     if mode == 'technical_only':
         # --- HEARTBEAT MODE (No News) ---
         prompt = f"""
@@ -112,7 +180,7 @@ def analyze():
         LOGIC:
         1. If RSI > 70 or < 30, flag it as High Risk.
         2. If MACD is Bullish and RSI is neutral (40-60), sentiment is Bullish.
-        3. Write a rationale focusing PURELY on price action (e.g., "Technical breakout immanent").
+        3. Write a rationale focusing PURELY on price action.
         
         OUTPUT JSON:
         {{
@@ -131,15 +199,10 @@ def analyze():
         HEADLINE: "{headline}"
         {tech_context}
         
-        SCORING GUIDELINES (Strictly follow this for sentiment_score):
+        SCORING GUIDELINES:
         - +/- 8 to 10: STRONGLY BULLISH/BEARISH (News is major AND Technicals agree).
         - +/- 4 to 7:  BULLISH/BEARISH (Standard signal).
-        - +/- 1 to 3:  WEAKLY BULLISH/BEARISH (News opposes Technicals, or low conviction).
-        
-        LOGIC:
-        - IF News is Good but RSI > 75 (Overbought) -> Score should be LOW positive (1 to 3) -> "WEAKLY BULLISH" (Caution).
-        - IF News is Bad but RSI < 25 (Oversold) -> Score should be LOW negative (-1 to -3) -> "WEAKLY BEARISH" (Bounce risk).
-        - IF News matches Technicals -> Score HIGH (8 to 10).
+        - +/- 1 to 3:  WEAKLY BULLISH/BEARISH (Mixed signals).
         
         RESPONSE FORMAT (JSON ONLY):
         {{
@@ -147,39 +210,42 @@ def analyze():
             "confidence": (float 0.0 to 1.0),
             "risk_level": "LOW" | "MEDIUM" | "HIGH",
             "action": "BUY" | "SELL" | "WATCH" | "IGNORE",
-            "reasoning": "Explain WHY it is Weak/Strong. Reference RSI or MACD explicitly."
+            "reasoning": "Explain WHY. Reference RSI or MACD explicitly."
         }}
         """
 
-    try:
-        chat_completion = client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": "You are a JSON-only financial trading bot."},
-                {"role": "user", "content": prompt}
-            ],
-            model="llama-3.3-70b-versatile", # Latest supported model
-            temperature=0.3,
-        )
-
-        content = chat_completion.choices[0].message.content
+    # 3. EXECUTE DUAL-CORE BRAIN LOGIC
+    
+    # Attempt 1: Groq
+    raw_response = ask_groq(system_instruction, prompt)
+    
+    # Attempt 2: Gemini (Failover)
+    if not raw_response:
+        print("⚠️ SWITCHING TO BACKUP BRAIN (GEMINI)...")
+        raw_response = ask_gemini(system_instruction, prompt)
         
-        # Clean Code Block Syntax
-        import json
-        import re
-        
-        clean_content = re.sub(r'```json\s*|\s*```', '', content)
-        
-        match = re.search(r'\{.*\}', clean_content, re.DOTALL)
-        if match:
-            result = json.loads(match.group(0))
+    # 4. Final Processing
+    if raw_response:
+        result = clean_and_parse_json(raw_response)
+        if result:
             return jsonify(result)
         else:
-            print("Groq Response Error:", content)
-            return jsonify({"error": "Failed to parse JSON"})
+            print("❌ JSON PARSE ERROR:", raw_response)
+            return jsonify({"error": "Failed to parse JSON output"})
+            
+    # If both failed
+    return jsonify({
+        "sentiment_score": 0, 
+        "confidence": 0, 
+        "action": "IGNORE", 
+        "reasoning": "SYSTEM FAILURE: All AI models offline.", 
+        "risk_level": "UNKNOWN"
+    })
 
-    except Exception as e:
-        print(f"Groq API Error: {e}")
-        return jsonify({"sentiment_score": 0, "confidence": 0, "action": "IGNORE", "reasoning": "Connection Failed", "risk_level": "UNKNOWN"})
+@app.route('/health', methods=['GET'])
+def health_check():
+    return jsonify({"status": "HEALTHY", "groq": bool(groq_client), "gemini": bool(gemini_model)})
 
 if __name__ == '__main__':
-    app.run(port=5000)
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
