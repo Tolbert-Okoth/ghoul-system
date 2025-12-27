@@ -94,6 +94,7 @@ def fetch_finnhub_data(symbol):
         'COIN': 'COIN', 'PLTR': 'PLTR', 'AMD': 'AMD',
         'ES=F': 'SPY', 'BTC-USD': 'COIN'
     }
+    # Clean ticker name
     ticker = ticker_map.get(symbol, symbol).replace("=F", "").replace("-USD", "")
     
     print(f"🛞 USING SPARE TIRE: Fetching {ticker} from Finnhub...")
@@ -101,6 +102,7 @@ def fetch_finnhub_data(symbol):
         end = int(time.time())
         start = end - (90 * 24 * 60 * 60) # 90 days
         
+        # CRITICAL: resolution=D is required for free tier
         url = f"https://finnhub.io/api/v1/stock/candle?symbol={ticker}&resolution=D&from={start}&to={end}&token={FINNHUB_API_KEY}"
         r = requests.get(url)
         data = r.json()
