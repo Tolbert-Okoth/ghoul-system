@@ -24,11 +24,13 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 CORS(app)
 
-# 1. SETUP GROQ (Primary Brain)
+# 1. SETUP GROQ (Primary Brain) - WITH RETRY PROTECTION
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 groq_client = None
 if GROQ_API_KEY:
-    groq_client = Groq(api_key=GROQ_API_KEY)
+    # 🛑 CRITICAL FIX: max_retries=0 prevents the library from sleeping
+    # and killing the Gunicorn worker during a rate limit event.
+    groq_client = Groq(api_key=GROQ_API_KEY, max_retries=0)
 else:
     logger.warning("⚠️ GROQ_API_KEY missing. Primary brain offline.")
 
@@ -78,7 +80,7 @@ FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY")
 
 # --- 🧠 SMART DATA FETCHING (Cache -> Yahoo -> Finnhub) ---
 TECHNICAL_CACHE = {}
-CACHE_DURATION = 900 # 15 minutes (900 seconds)
+CACHE_DURATION = 900 # 15 minutes
 
 def fetch_finnhub_data(symbol):
     """Fallback: Fetch candles from Finnhub if Yahoo fails."""
@@ -86,28 +88,32 @@ def fetch_finnhub_data(symbol):
         print("⚠️ Finnhub Key missing. Cannot use backup.")
         return None
     
-    # Finnhub uses 'SPY' for SPY, not 'ES=F'. Map accordingly.
-    ticker = 'SPY' if symbol == 'SPY' else symbol
+    # 🛡️ SAFETY MAPPING: Finnhub Free Tier only allows US Stocks.
+    ticker_map = {
+        'SPY': 'SPY', 'NVDA': 'NVDA', 'TSLA': 'TSLA', 
+        'COIN': 'COIN', 'PLTR': 'PLTR', 'AMD': 'AMD',
+        'ES=F': 'SPY', 'BTC-USD': 'COIN'
+    }
+    ticker = ticker_map.get(symbol, symbol).replace("=F", "").replace("-USD", "")
     
     print(f"🛞 USING SPARE TIRE: Fetching {ticker} from Finnhub...")
     try:
-        # Get timestamp for last 90 days
         end = int(time.time())
-        start = end - (90 * 24 * 60 * 60)
+        start = end - (90 * 24 * 60 * 60) # 90 days
         
         url = f"https://finnhub.io/api/v1/stock/candle?symbol={ticker}&resolution=D&from={start}&to={end}&token={FINNHUB_API_KEY}"
         r = requests.get(url)
         data = r.json()
         
         if data.get('s') == 'ok':
-            # Convert Finnhub format to Pandas format matching yfinance
-            df = pd.DataFrame({
-                'Close': data['c'],
-                # We only strictly need Close for RSI/MACD/Bollinger
-            })
+            # We only strictly need Close for indicators
+            df = pd.DataFrame({'Close': data['c']})
             return df
+        elif data.get('error'):
+            print(f"❌ Finnhub Refused: {data['error']}")
+            return None
         else:
-            print(f"❌ Finnhub Error: {data}")
+            print(f"❌ Finnhub Empty/Error: {data}")
             return None
     except Exception as e:
         print(f"❌ Finnhub Request Failed: {e}")
@@ -125,14 +131,14 @@ def calculate_indicators(df):
     df['RSI'] = 100 - (100 / (1 + rs))
     current_rsi = float(df['RSI'].iloc[-1])
 
-    # MACD (12, 26, 9)
+    # MACD
     k = df['Close'].ewm(span=12, adjust=False, min_periods=12).mean()
     d = df['Close'].ewm(span=26, adjust=False, min_periods=26).mean()
     macd = k - d
     signal = macd.ewm(span=9, adjust=False, min_periods=9).mean()
     macd_trend = "BULLISH" if float(macd.iloc[-1]) > float(signal.iloc[-1]) else "BEARISH"
 
-    # Bollinger Bands (20)
+    # Bollinger Bands
     sma = df['Close'].rolling(window=20).mean()
     std = df['Close'].rolling(window=20).std()
     upper = sma + (std * 2)
@@ -179,7 +185,6 @@ def get_technicals(symbol):
     if df is not None and not df.empty:
         result = calculate_indicators(df)
         if result:
-            # Save to memory to prevent banning
             TECHNICAL_CACHE[symbol] = { 'data': result, 'timestamp': current_time }
             return result
 
@@ -200,6 +205,8 @@ def ask_groq(system_prompt, user_prompt):
         )
         return completion.choices[0].message.content
     except Exception as e:
+        # With max_retries=0, the 429 error raises INSTANTLY here
+        # allowing us to catch it and switch to Gemini immediately.
         logger.error(f"❌ GROQ FAILED (Likely Rate Limit): {str(e)}")
         return None
 
