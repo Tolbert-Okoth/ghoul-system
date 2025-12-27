@@ -200,6 +200,53 @@ app.get('/setup-db', async (req, res) => {
 });
 
 // ------------------------------------------
+// 📜 SAFE BACKFILL TOOL (Deep Scan + Economy Speed)
+// ------------------------------------------
+app.get('/api/backfill', async (req, res) => {
+    console.log("[BACKFILL] 🕰️ Starting Deep History Scan (Economy Speed)...");
+    
+    // Send response immediately so the browser doesn't timeout
+    res.send("✅ Backfill started! This will take ~10 minutes. Check Render logs for progress.");
+
+    // Run this in the background
+    (async () => {
+        for (const sym of Object.keys(ASSETS)) {
+            console.log(`[BACKFILL] Downloading history for ${sym}...`);
+            try {
+                const feed = await parser.parseURL(ASSETS[sym].rss);
+                
+                // LIMIT: Only look at the last 10 items (Depth)
+                const historyItems = feed.items.slice(0, 10); 
+                
+                for (const item of historyItems) {
+                    // Check DB first to save AI Tokens
+                    const existing = await pool.query("SELECT id FROM trading_signals WHERE headline = $1", [item.title]);
+                    
+                    if (existing.rows.length === 0) {
+                        console.log(`[BACKFILL] Processing: ${item.title.substring(0, 40)}...`);
+                        
+                        // Run the AI Analysis
+                        await processSignal(item.title, sym, marketCache[sym] || 0);
+                        
+                        // 🛑 THE ECONOMY BRAKE: Wait 6 seconds between every single item.
+                        // Gemini Limit: 15 RPM. This puts us at ~10 RPM (Safe Zone).
+                        await sleep(6000); 
+                    } else {
+                        // If we already have it, skip instantly without waiting
+                        process.stdout.write("."); 
+                    }
+                }
+            } catch (e) {
+                console.error(`[BACKFILL ERROR] ${sym}: ${e.message}`);
+            }
+            console.log(`\n[BACKFILL] Finished ${sym}. Cooling down 10s...`);
+            await sleep(10000); // Extra safety between stocks
+        }
+        console.log("✅ [BACKFILL] COMPLETE. Dashboard populated.");
+    })();
+});
+
+// ------------------------------------------
 // 📈 CHART DATA ENDPOINT
 // ------------------------------------------
 app.get('/api/v1/history', async (req, res) => {
