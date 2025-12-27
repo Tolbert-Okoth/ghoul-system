@@ -28,15 +28,13 @@ const server = http.createServer(app);
 // 🛡️ SECURITY & PROXY SETTINGS
 // ------------------------------------------
 app.use(helmet());
-app.set('trust proxy', 1); // CRITICAL: Fixes the rate limit error on Render
+app.set('trust proxy', 1); 
 
 const allowedOrigins = ['http://localhost:3000', 'http://127.0.0.1:3000'];
 app.use(cors({
     origin: function (origin, callback) {
         if (!origin) return callback(null, true);
-        if (allowedOrigins.indexOf(origin) === -1 && process.env.NODE_ENV !== 'production') {
-             // console.log('Blocked Origin:', origin);
-        }
+        if (allowedOrigins.indexOf(origin) === -1 && process.env.NODE_ENV !== 'production') { }
         return callback(null, true);
     },
     methods: ["GET", "POST"],
@@ -56,13 +54,11 @@ app.use(express.json());
 // ------------------------------------------
 // 🚦 ROUTES & CONTROLLERS
 // ------------------------------------------
-
-// 1. HEALTH CHECK (UptimeRobot Target)
 app.get('/health', (req, res) => {
     res.status(200).send('ALIVE');
 });
 
-// 2. CONNECT THE SIGNAL ROUTES (Fixes 500 Error)
+// Connect the Signal Routes
 app.use('/api/v1/intel', signalRoutes);
 
 // ------------------------------------------
@@ -97,8 +93,7 @@ let chartCache = {};
 async function processSignal(headline, symbol, currentPrice, isTechnicalCheck = false) {
     try {
         if (!isTechnicalCheck) {
-            // Check if headline exists to prevent duplicates
-            // NOTE: We catch errors here silently to prevent crash if table is missing during startup
+            // Check DB first to save AI Tokens (Duplicate Protection)
             try {
                 const existing = await pool.query("SELECT id FROM trading_signals WHERE headline = $1", [headline]);
                 if (existing.rows.length > 0) return false; 
@@ -110,7 +105,7 @@ async function processSignal(headline, symbol, currentPrice, isTechnicalCheck = 
         const logPrefix = isTechnicalCheck ? "[❤️ HEARTBEAT]" : "[📰 NEWS]";
         console.log(`${logPrefix} ${symbol}: Analyzing...`);
         
-        // --- CLOUD LINK: Connect to Python Service ---
+        // Connect to Python Service
         const brainURL = process.env.PYTHON_MICROSERVICE_URL 
             ? `${process.env.PYTHON_MICROSERVICE_URL}/analyze` 
             : 'http://127.0.0.1:5000/analyze';
@@ -139,30 +134,34 @@ async function processSignal(headline, symbol, currentPrice, isTechnicalCheck = 
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
+// === 🐢 ECONOMY MODE: SLOWER SCAN TO FIX 429 ERRORS ===
 async function runSmartScan() {
-    console.log("📡 PULSE: Cycling through Asset Watchlist...");
+    console.log("📡 PULSE: Cycling through Asset Watchlist (Economy Mode)...");
+    
     for (const sym of Object.keys(ASSETS)) {
         let signalFound = false;
         try {
             const feed = await parser.parseURL(ASSETS[sym].rss);
-            for (const item of feed.items.slice(0, 2)) { 
+            // 📉 DIET: Only read the TOP 1 headline (was 2)
+            for (const item of feed.items.slice(0, 1)) { 
                 if (await processSignal(item.title, sym, marketCache[sym] || 0)) signalFound = true;
             }
         } catch (e) { }
         
-        // If no news, run a technical check so the system doesn't look dead
         if (!signalFound) await processSignal("Technical Market Check", sym, marketCache[sym] || 0, true);
         
-        await sleep(2000); 
+        // 📉 DIET: Wait 20 seconds between stocks (was 2s) to prevent Groq bans
+        console.log(`[WAIT] Cooling down for 20s...`);
+        await sleep(20000); 
     }
-    console.log("✅ Cycle Complete. Sleeping 5 min.");
+    console.log("✅ Cycle Complete. Sleeping 30 min.");
     
-    // Schedule next run
-    setTimeout(runSmartScan, 300000);
+    // 📉 DIET: Run every 30 minutes (was 5 mins)
+    setTimeout(runSmartScan, 1800000);
 }
 
 // ------------------------------------------
-// 🕹️ MANUAL OVERRIDE (Kickstarter)
+// 🕹️ MANUAL OVERRIDE & DB TOOLS
 // ------------------------------------------
 app.get('/api/force-scan', async (req, res) => {
     console.log("[MANUAL OVERRIDE] 🔴 Force triggering AI Scan...");
@@ -175,9 +174,6 @@ app.get('/api/force-scan', async (req, res) => {
     }
 });
 
-// ------------------------------------------
-// 🛠️ EMERGENCY DATABASE FIX TOOL
-// ------------------------------------------
 app.get('/setup-db', async (req, res) => {
     try {
         const createTableQuery = `
@@ -259,7 +255,7 @@ function generateSimulationData(symbol, range) {
 }
 
 // ------------------------------------------
-// 🔌 STARTUP SEQUENCE
+// 🔌 STARTUP SEQUENCE (AUTO-HEAL)
 // ------------------------------------------
 
 // Start the ticker (Price Updates)
@@ -271,11 +267,35 @@ setInterval(() => {
     });
 }, 3000);
 
-// Start the Server
+// Start the Server & Auto-Fix Database
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => { 
+server.listen(PORT, async () => { 
     console.log(`GHOUL_COMMAND_CENTER: LIVE (Port ${PORT})`);
+
+    // === 🛠️ AUTO-FIX: Create Table on Startup ===
+    try {
+        console.log("🔨 Checking Database Structure...");
+        const createTableQuery = `
+            CREATE TABLE IF NOT EXISTS trading_signals (
+                id SERIAL PRIMARY KEY,
+                symbol VARCHAR(10),
+                headline TEXT,
+                sentiment_score DECIMAL,
+                confidence DECIMAL,
+                verdict VARCHAR(20),
+                status VARCHAR(20),
+                reasoning TEXT,
+                entry_price DECIMAL,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        `;
+        await pool.query(createTableQuery);
+        console.log("✅ SUCCESS: Database Table Verified/Created.");
+    } catch (err) {
+        console.error("❌ DB SETUP FAILED:", err.message);
+    }
     
-    // Initial Scan on Startup (Delayed by 10s to ensure DB connection)
+    // Start the AI Scan (Delayed)
     setTimeout(runSmartScan, 10000);
 });
