@@ -1,54 +1,58 @@
 import React, { useEffect, useState } from 'react';
-import axios from 'axios';
 import io from 'socket.io-client';
+import SignalCard from './SignalCard'; 
+
+const SERVER_URL = 'https://ghoul-system.onrender.com';
 
 const SignalFeed = () => {
     const [signals, setSignals] = useState([]);
 
-    // Initial Fetch
     useEffect(() => {
-        const fetchSignals = async () => {
-            try {
-                const res = await axios.get('https://ghoul-system.onrender.com/api/v1/signals/latest');
-                setSignals(res.data);
-            } catch (e) { console.error(e); }
-        };
-        fetchSignals();
+        const socket = io(SERVER_URL);
 
-        // Real-time Updates
-        const socket = io('https://ghoul-system.onrender.com');
-        socket.on('new_signal', (newSignal) => {
-            setSignals(prev => [newSignal, ...prev].slice(0, 50)); // Keep last 50
+        // Listeners
+        const handleNewSignal = (data) => {
+            setSignals((prev) => {
+                const exists = prev.find(s => s.id === data.id);
+                if (exists) return prev;
+                return [data, ...prev].slice(0, 50);
+            });
+        };
+
+        const handleHistory = (data) => {
+            if (data.signals && Array.isArray(data.signals)) {
+                setSignals(data.signals);
+            }
+        };
+
+        socket.on('new_signal', handleNewSignal);
+        socket.on('history_dump', handleHistory);
+
+        socket.on('connect', () => {
+            socket.emit('request_history');
         });
 
-        return () => socket.close();
+        return () => socket.disconnect();
     }, []);
 
-    const getSentimentColor = (s) => {
-        if (s > 0) return 'bullish';
-        if (s < 0) return 'bearish';
-        return 'watch';
-    };
-
     return (
-        <div className="panel feed-panel">
-            <div className="panel-header">INCOMING_DATA_STREAM</div>
+        <div className="panel feed-panel" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+            <div className="panel-header" style={{ marginBottom: '10px' }}>
+                INCOMING_DATA_STREAM
+            </div>
             
-            {/* SCROLL AREA: This div allows scrolling while header stays fixed */}
-            <div className="signal-scroll-area">
+            <div className="signal-scroll-area" style={{ flex: 1, overflowY: 'auto', paddingRight: '5px' }}>
                 <div className="signal-grid">
-                    {signals.map((sig) => (
-                        <div key={sig.id} className={`signal-card ${getSentimentColor(sig.sentiment)}`}>
-                            <div className="signal-header">
-                                <span className="sig-type">{sig.status}</span>
-                                <span className="sig-conf">{(sig.confidence * 100).toFixed(0)}% CONF</span>
-                            </div>
-                            <div className="sig-headline">{sig.headline}</div>
-                            <div className="sig-meta">
-                                {new Date(sig.created_at).toLocaleTimeString()} :: ID {sig.id}
-                            </div>
+                    {signals.length > 0 ? (
+                        signals.map((sig, i) => (
+                            <SignalCard key={sig.id || i} data={sig} />
+                        ))
+                    ) : (
+                        // 🛑 CHANGED: Removed "//" entirely to prevent syntax errors
+                        <div style={{ color: '#6b7280', fontSize: '12px', textAlign: 'center', marginTop: '20px', fontFamily: 'monospace' }}>
+                            ESTABLISHING UPLINK...
                         </div>
-                    ))}
+                    )}
                 </div>
             </div>
         </div>
