@@ -83,35 +83,33 @@ const ASSETS = {
 };
 
 // 🧠 SERVER MEMORY
-let signalHistory = [];  // Stores last 50 signals for live broadcasting
 let marketCache = {}; 
 let chartCache = {}; 
 
 // ------------------------------------------
-// 🔌 WEBSOCKET CONNECTION (The "Live Truth" Fix)
+// 🔌 WEBSOCKET CONNECTION (The "Always-Reliable" Fix)
 // ------------------------------------------
 io.on('connection', async (socket) => {
     console.log('New client connected:', socket.id);
 
     try {
-        // 🔍 DEBUG: Log that we are trying to fetch
-        console.log("🔍 Fetching history from DB for new client...");
-
-        // 🧠 ALWAYS Ask Database for the latest 50 signals
-        // This ensures reloading the page ALWAYS gets the saved data
-        const result = await pool.query("SELECT * FROM trading_signals ORDER BY id DESC LIMIT 50");
+        // 🔒 DIRECT DATABASE FETCH
+        // This guarantees that even if the server just restarted, 
+        // we pull the saved history from the permanent database.
+        console.log("🔍 Fetching history directly from DB...");
         
-        console.log(`📤 Sending ${result.rows.length} signals to client.`);
+        const result = await pool.query("SELECT * FROM trading_signals ORDER BY timestamp DESC LIMIT 50");
+        
+        console.log(`📤 Sending ${result.rows.length} archived signals to client.`);
 
-        // ⚡ Send the fresh DB data
         socket.emit('history_dump', {
             signals: result.rows
         });
 
     } catch (err) {
         console.error("❌ History Fetch Failed:", err.message);
-        // Fallback to RAM if DB fails
-        socket.emit('history_dump', { signals: signalHistory });
+        // If DB fails, send empty array so frontend doesn't crash
+        socket.emit('history_dump', { signals: [] });
     }
 
     socket.on('disconnect', () => console.log('Client disconnected'));
@@ -124,10 +122,11 @@ async function processSignal(headline, symbol, currentPrice, isTechnicalCheck = 
     try {
         if (!isTechnicalCheck) {
             try {
+                // Duplicate Protection
                 const existing = await pool.query("SELECT id FROM trading_signals WHERE headline = $1", [headline]);
                 if (existing.rows.length > 0) return false; 
             } catch (dbErr) {
-                console.log("⚠️ DB Table might be missing. Skipping duplicate check.");
+                console.log("⚠️ DB Check Error. Skipping.");
             }
         }
         
@@ -146,6 +145,7 @@ async function processSignal(headline, symbol, currentPrice, isTechnicalCheck = 
         let finalStatus = aiData.action === 'IGNORE' || aiData.confidence < 0.30 ? 'NOISE' : (aiData.confidence < 0.60 ? 'PASSIVE' : 'ACTIVE');
         
         if (finalStatus !== 'NOISE' || isTechnicalCheck) {
+            // 💾 SAVE TO DATABASE (Permanent Storage)
             const result = await pool.query(
                 'INSERT INTO trading_signals (headline, sentiment_score, confidence, reasoning, entry_price, status, symbol, verdict) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *', 
                 [headline, aiData.sentiment_score, aiData.confidence, `[RISK: ${aiData.risk_level}] ${aiData.reasoning}`, currentPrice, finalStatus, symbol, aiData.action]
@@ -153,11 +153,7 @@ async function processSignal(headline, symbol, currentPrice, isTechnicalCheck = 
             
             const newSignal = result.rows[0];
 
-            // 1. SAVE TO RAM (For live buffering)
-            signalHistory.unshift(newSignal);
-            if (signalHistory.length > 50) signalHistory.pop();
-
-            // 2. BROADCAST LIVE
+            // ⚡ BROADCAST TO LIVE USERS
             io.emit('new_signal', newSignal); 
             
             return true;
@@ -304,6 +300,6 @@ server.listen(PORT, async () => {
         console.log("✅ SUCCESS: Database Ready.");
     } catch (err) { console.error("DB Init Error:", err.message); }
     
-    // 3. Start AI Scan
+    // 2. Start AI Scan
     setTimeout(runSmartScan, 10000);
 });
