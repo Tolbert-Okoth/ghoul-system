@@ -1,29 +1,84 @@
 import React from 'react';
-import { TrendingUp, TrendingDown, Info } from 'lucide-react';
+import { TrendingUp, TrendingDown, Minus, Activity, Info } from 'lucide-react';
 
-const SignalCard = ({ signal }) => {
-  const isBullish = signal.sentiment > 0;
+const SignalCard = ({ data }) => {
+  // 🛡️ Safety check
+  if (!data) return null;
+
+  // 1. Destructure Data
+  const { sentiment_score, confidence, headline, reasoning, timestamp, id, verdict } = data;
+
+  // 2. Logic for 3 States
+  const isBullish = sentiment_score >= 4;
+  const isBearish = sentiment_score <= -4;
   
-  return (
-    <div className={`terminal-card p-3 mb-3 ${isBullish ? 'glow-purple' : 'glow-red'}`}>
-      <div className="d-flex justify-content-between align-items-start mb-2">
-        <h6 className="headline small fw-bold m-0 text-uppercase">{signal.headline}</h6>
-        {isBullish ? <TrendingUp size={16} className="text-purple" /> : <TrendingDown size={16} className="text-danger" />}
-      </div>
-      
-      <div className="d-flex justify-content-between align-items-center">
-        <span className={`badge ${isBullish ? 'bg-purple-dim' : 'bg-red-dim'}`}>
-          {isBullish ? 'BULL' : 'BEAR'} {Math.abs(signal.sentiment).toFixed(2)}
-        </span>
-        <span className="text-muted" style={{fontSize: '10px'}}>
-          CONFIDENCE: {(signal.confidence * 100).toFixed(0)}%
-        </span>
-      </div>
+  // 3. Define Colors (Cyberpunk Palette)
+  const getTheme = () => {
+    if (isBullish) return {
+      color: '#34d399',       // Emerald Green
+      borderColor: '#10b981', 
+      label: 'BULLISH',
+      icon: <TrendingUp size={16} />
+    };
+    if (isBearish) return {
+      color: '#fb7185',       // Rose Red
+      borderColor: '#f43f5e', 
+      label: 'BEARISH',
+      icon: <TrendingDown size={16} />
+    };
+    return {
+      color: '#9ca3af',       // Gray
+      borderColor: '#6b7280', 
+      label: 'NEUTRAL',
+      icon: <Minus size={16} />
+    };
+  };
 
-      <div className="mt-2 p-2 bg-black-thin rounded">
-        <p className="reasoning m-0 small fst-italic text-secondary">
-          <Info size={10} className="me-1"/> {signal.reasoning}
-        </p>
+  const theme = getTheme();
+
+  return (
+    <div 
+      className="card mb-2 border-0 text-white" 
+      style={{
+        background: 'rgba(17, 24, 39, 0.7)', // Dark semi-transparent
+        borderLeft: `4px solid ${theme.borderColor}`,
+        borderRadius: '0 4px 4px 0',
+        transition: 'all 0.2s ease'
+      }}
+    >
+      <div className="card-body p-3">
+        
+        {/* --- HEADER --- */}
+        <div className="d-flex justify-content-between align-items-center mb-2">
+          <div className="d-flex align-items-center gap-2" style={{ color: theme.color, fontWeight: 'bold', fontSize: '11px', letterSpacing: '1px' }}>
+            {theme.icon}
+            <span>{theme.label} ({sentiment_score})</span>
+          </div>
+          <span className="text-info d-flex align-items-center gap-1" style={{ fontSize: '10px', fontFamily: 'monospace' }}>
+            <Activity size={12} />
+            {Math.round(confidence * 100)}% CONF
+          </span>
+        </div>
+
+        {/* --- HEADLINE --- */}
+        <h6 className="card-title mb-2" style={{ fontSize: '13px', lineHeight: '1.4', color: '#e5e7eb', fontWeight: '600', fontFamily: 'monospace' }}>
+          {headline}
+        </h6>
+
+        {/* --- REASONING BOX --- */}
+        <div className="p-2 rounded" style={{ background: 'rgba(0, 0, 0, 0.3)', border: '1px solid rgba(255,255,255,0.05)' }}>
+          <p className="m-0 d-flex gap-2" style={{ fontSize: '10px', color: '#9ca3af', fontStyle: 'italic', fontFamily: 'monospace' }}>
+            <Info size={12} style={{ marginTop: '2px', minWidth: '12px' }} />
+            {reasoning || "Analyzing market structure..."}
+          </p>
+        </div>
+
+        {/* --- FOOTER --- */}
+        <div className="d-flex justify-content-between mt-2 pt-1" style={{ fontSize: '9px', color: '#6b7280', fontFamily: 'monospace' }}>
+          <span>{new Date(timestamp).toLocaleTimeString()}</span>
+          <span>ID: {id} :: {verdict}</span>
+        </div>
+
       </div>
     </div>
   );
