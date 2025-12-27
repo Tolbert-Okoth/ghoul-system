@@ -6,3 +6,4 @@ pandas
 python-dotenv
 gunicorn
 google-generativeai
+requests

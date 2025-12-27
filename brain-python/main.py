@@ -1,7 +1,9 @@
 import os
 import re
 import json
+import time
 import logging
+import requests
 from pathlib import Path
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify
@@ -43,36 +45,21 @@ def setup_gemini():
     try:
         genai.configure(api_key=GEMINI_API_KEY)
         
-        # Step A: Ask Google for all available models
+        # Ask Google for all available models
         all_models = list(genai.list_models())
-        
-        # Step B: Filter for models that can actually write text
         available_names = [
             m.name for m in all_models 
             if 'generateContent' in m.supported_generation_methods
         ]
         
         if not available_names:
-            logger.error("❌ No Gemini models found. Check API Key permissions.")
+            logger.error("❌ No Gemini models found. Check API Key.")
             return None
 
-        # Step C: Smart Selection (Prefer 'Flash' -> 'Pro' -> First Available)
-        chosen_model_name = None
-        
-        # Priority 1: Flash (Fastest)
-        for name in available_names:
-            if 'flash' in name.lower():
-                chosen_model_name = name
-                break
-        
-        # Priority 2: Pro (Smarter)
+        # Smart Selection (Flash -> Pro -> Any)
+        chosen_model_name = next((n for n in available_names if 'flash' in n.lower()), None)
         if not chosen_model_name:
-            for name in available_names:
-                if 'pro' in name.lower():
-                    chosen_model_name = name
-                    break
-        
-        # Priority 3: Anything that works
+            chosen_model_name = next((n for n in available_names if 'pro' in n.lower()), None)
         if not chosen_model_name:
             chosen_model_name = available_names[0]
 
@@ -83,57 +70,120 @@ def setup_gemini():
         logger.error(f"❌ Gemini Setup Failed: {str(e)}")
         return None
 
-# Initialize Gemini
 gemini_model = setup_gemini()
 
+# 3. SETUP FINNHUB (Spare Tire Data Source)
+FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY")
 
-# --- LIGHTWEIGHT QUANT ENGINE ---
-def get_technicals(symbol):
-    try:
-        if symbol == 'SPY': ticker = 'ES=F'
-        else: ticker = symbol
 
-        df = yf.download(ticker, period="3mo", interval="1d", progress=False)
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
+# --- 🧠 SMART DATA FETCHING (Cache -> Yahoo -> Finnhub) ---
+TECHNICAL_CACHE = {}
+CACHE_DURATION = 900 # 15 minutes (900 seconds)
 
-        if df.empty: return None
-
-        # RSI (14)
-        delta = df['Close'].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-        rs = gain / loss
-        df['RSI'] = 100 - (100 / (1 + rs))
-        current_rsi = float(df['RSI'].iloc[-1])
-
-        # MACD
-        k = df['Close'].ewm(span=12, adjust=False, min_periods=12).mean()
-        d = df['Close'].ewm(span=26, adjust=False, min_periods=26).mean()
-        macd = k - d
-        signal = macd.ewm(span=9, adjust=False, min_periods=9).mean()
-        macd_trend = "BULLISH" if float(macd.iloc[-1]) > float(signal.iloc[-1]) else "BEARISH"
-
-        # Bollinger Bands
-        sma = df['Close'].rolling(window=20).mean()
-        std = df['Close'].rolling(window=20).std()
-        upper = sma + (std * 2)
-        lower = sma - (std * 2)
-        close = float(df['Close'].iloc[-1])
-        
-        bb_status = "NEUTRAL"
-        if close > float(upper.iloc[-1]): bb_status = "OVEREXTENDED (UPPER BAND)"
-        if close < float(lower.iloc[-1]): bb_status = "OVERSOLD (LOWER BAND)"
-
-        return {
-            "rsi": round(current_rsi, 2),
-            "macd_trend": macd_trend,
-            "bb_status": bb_status,
-            "price": round(close, 2)
-        }
-    except Exception as e:
-        print(f"Stats Error: {e}")
+def fetch_finnhub_data(symbol):
+    """Fallback: Fetch candles from Finnhub if Yahoo fails."""
+    if not FINNHUB_API_KEY: 
+        print("⚠️ Finnhub Key missing. Cannot use backup.")
         return None
+    
+    # Finnhub uses 'SPY' for SPY, not 'ES=F'. Map accordingly.
+    ticker = 'SPY' if symbol == 'SPY' else symbol
+    
+    print(f"🛞 USING SPARE TIRE: Fetching {ticker} from Finnhub...")
+    try:
+        # Get timestamp for last 90 days
+        end = int(time.time())
+        start = end - (90 * 24 * 60 * 60)
+        
+        url = f"https://finnhub.io/api/v1/stock/candle?symbol={ticker}&resolution=D&from={start}&to={end}&token={FINNHUB_API_KEY}"
+        r = requests.get(url)
+        data = r.json()
+        
+        if data.get('s') == 'ok':
+            # Convert Finnhub format to Pandas format matching yfinance
+            df = pd.DataFrame({
+                'Close': data['c'],
+                # We only strictly need Close for RSI/MACD/Bollinger
+            })
+            return df
+        else:
+            print(f"❌ Finnhub Error: {data}")
+            return None
+    except Exception as e:
+        print(f"❌ Finnhub Request Failed: {e}")
+        return None
+
+def calculate_indicators(df):
+    """Shared math logic for both Yahoo and Finnhub data."""
+    if df.empty: return None
+
+    # RSI (14)
+    delta = df['Close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+    rs = gain / loss
+    df['RSI'] = 100 - (100 / (1 + rs))
+    current_rsi = float(df['RSI'].iloc[-1])
+
+    # MACD (12, 26, 9)
+    k = df['Close'].ewm(span=12, adjust=False, min_periods=12).mean()
+    d = df['Close'].ewm(span=26, adjust=False, min_periods=26).mean()
+    macd = k - d
+    signal = macd.ewm(span=9, adjust=False, min_periods=9).mean()
+    macd_trend = "BULLISH" if float(macd.iloc[-1]) > float(signal.iloc[-1]) else "BEARISH"
+
+    # Bollinger Bands (20)
+    sma = df['Close'].rolling(window=20).mean()
+    std = df['Close'].rolling(window=20).std()
+    upper = sma + (std * 2)
+    lower = sma - (std * 2)
+    close = float(df['Close'].iloc[-1])
+    
+    bb_status = "NEUTRAL"
+    if close > float(upper.iloc[-1]): bb_status = "OVEREXTENDED (UPPER BAND)"
+    if close < float(lower.iloc[-1]): bb_status = "OVERSOLD (LOWER BAND)"
+
+    return {
+        "rsi": round(current_rsi, 2),
+        "macd_trend": macd_trend,
+        "bb_status": bb_status,
+        "price": round(close, 2)
+    }
+
+def get_technicals(symbol):
+    global TECHNICAL_CACHE
+    current_time = time.time()
+    
+    # 1. CACHE CHECK (Shield #1)
+    if symbol in TECHNICAL_CACHE:
+        entry = TECHNICAL_CACHE[symbol]
+        if (current_time - entry['timestamp']) < CACHE_DURATION:
+            print(f"⚡ CACHE HIT: {symbol} (No API calls)")
+            return entry['data']
+
+    df = None
+    
+    # 2. TRY YAHOO FINANCE (Primary Data)
+    try:
+        ticker = 'ES=F' if symbol == 'SPY' else symbol
+        df = yf.download(ticker, period="3mo", interval="1d", progress=False)
+        if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
+    except Exception as e:
+        print(f"⚠️ Yahoo Failed: {e}")
+    
+    # 3. TRY FINNHUB (Spare Tire / Backup Data)
+    if df is None or df.empty:
+        df = fetch_finnhub_data(symbol)
+
+    # 4. CALCULATE & RETURN
+    if df is not None and not df.empty:
+        result = calculate_indicators(df)
+        if result:
+            # Save to memory to prevent banning
+            TECHNICAL_CACHE[symbol] = { 'data': result, 'timestamp': current_time }
+            return result
+
+    return None
 
 # --- AI HELPER FUNCTIONS ---
 def ask_groq(system_prompt, user_prompt):
@@ -183,6 +233,7 @@ def analyze():
     print(f"🧠 ANALYZING [{mode.upper()}]: {symbol}")
 
     technicals = get_technicals(symbol)
+    
     tech_context = "MARKET DATA: UNAVAILABLE"
     if technicals:
         tech_context = f"""
@@ -210,10 +261,10 @@ def analyze():
         OUTPUT JSON: {{ "sentiment_score": (int -10 to 10), "confidence": (0.0-1.0), "risk_level": "LOW/MED/HIGH", "action": "BUY/SELL/WATCH", "reasoning": "Why?" }}
         """
 
-    # 1. Try Groq
+    # 1. Try Groq (Primary AI)
     raw_response = ask_groq(system_instruction, prompt)
     
-    # 2. Try Gemini (Auto-Discovered Model)
+    # 2. Try Gemini (Backup AI)
     if not raw_response:
         print("⚠️ SWITCHING TO BACKUP BRAIN (GEMINI)...")
         raw_response = ask_gemini(system_instruction, prompt)
