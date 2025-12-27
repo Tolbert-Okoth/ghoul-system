@@ -83,20 +83,36 @@ const ASSETS = {
 };
 
 // 🧠 SERVER MEMORY
-let signalHistory = [];  // Stores last 50 signals
+let signalHistory = [];  // Stores last 50 signals for live broadcasting
 let marketCache = {}; 
 let chartCache = {}; 
 
 // ------------------------------------------
-// 🔌 WEBSOCKET CONNECTION
+// 🔌 WEBSOCKET CONNECTION (The "Live Truth" Fix)
 // ------------------------------------------
-io.on('connection', (socket) => {
+io.on('connection', async (socket) => {
     console.log('New client connected:', socket.id);
-    
-    // ⚡ INSTANT RECALL: Send whatever is in memory immediately
-    socket.emit('history_dump', {
-        signals: signalHistory
-    });
+
+    try {
+        // 🔍 DEBUG: Log that we are trying to fetch
+        console.log("🔍 Fetching history from DB for new client...");
+
+        // 🧠 ALWAYS Ask Database for the latest 50 signals
+        // This ensures reloading the page ALWAYS gets the saved data
+        const result = await pool.query("SELECT * FROM trading_signals ORDER BY id DESC LIMIT 50");
+        
+        console.log(`📤 Sending ${result.rows.length} signals to client.`);
+
+        // ⚡ Send the fresh DB data
+        socket.emit('history_dump', {
+            signals: result.rows
+        });
+
+    } catch (err) {
+        console.error("❌ History Fetch Failed:", err.message);
+        // Fallback to RAM if DB fails
+        socket.emit('history_dump', { signals: signalHistory });
+    }
 
     socket.on('disconnect', () => console.log('Client disconnected'));
 });
@@ -137,7 +153,7 @@ async function processSignal(headline, symbol, currentPrice, isTechnicalCheck = 
             
             const newSignal = result.rows[0];
 
-            // 1. SAVE TO MEMORY
+            // 1. SAVE TO RAM (For live buffering)
             signalHistory.unshift(newSignal);
             if (signalHistory.length > 50) signalHistory.pop();
 
@@ -216,10 +232,6 @@ app.get('/api/backfill', async (req, res) => {
 // 📈 CHART DATA
 // ------------------------------------------
 app.get('/api/v1/history', async (req, res) => {
-    // ... (Your existing chart logic remains unchanged) ...
-    // Keeping it brief for readability, paste your chart logic here if needed
-    // or keep the existing block from your previous file.
-    // For this update, the memory part is what matters.
     const symbol = req.query.symbol || 'SPY';
     const range = req.query.range || '1y'; 
     const ticker = ASSETS[symbol] ? ASSETS[symbol].yahooTicker : 'ES=F';
@@ -239,36 +251,36 @@ app.get('/api/v1/history', async (req, res) => {
     else { period1.setFullYear(period1.getFullYear() - 1); } 
 
     try {
+        console.log(`[FETCHING] Downloading data for ${symbol} (Interval: ${interval})...`);
         const result = await yahooFinance.chart(ticker, { period1: period1, period2: period2, interval: interval });
         const formatted = result.quotes.filter(q => q.close).map(d => ({ time: Math.floor(new Date(d.date).getTime()/1000), value: d.close }));
+        
         if(formatted.length > 0) {
             marketCache[symbol] = formatted[formatted.length-1].value;
             chartCache[cacheKey] = { data: formatted, expiry: Date.now() + (interval === '1d' ? 3600000 : 300000) };
             res.json(formatted);
         } else { throw new Error("Empty Data"); }
     } catch (err) {
-        // Simple simulation fallback
-        res.json([]);
+        console.log(`⚠️ Yahoo Error (${symbol}): ${err.message}. Switching to Simulation.`);
+        const simData = generateSimulationData(symbol, range);
+        if(simData.length > 0) marketCache[symbol] = simData[simData.length-1].value;
+        res.json(simData);
     }
 });
 
-// ------------------------------------------
-// 🧠 RESTORE MEMORY FROM DB (The Fix)
-// ------------------------------------------
-async function restoreHistory() {
-    try {
-        console.log("🧠 MEMORY: Hydrating from Database...");
-        // Fetch last 50 signals from DB
-        const res = await pool.query("SELECT * FROM trading_signals ORDER BY timestamp DESC LIMIT 50");
-        if (res.rows.length > 0) {
-            signalHistory = res.rows;
-            console.log(`✅ MEMORY RESTORED: Loaded ${signalHistory.length} signals.`);
-        } else {
-            console.log("⚠️ MEMORY: Database is empty. Waiting for new scans.");
-        }
-    } catch (err) {
-        console.error("❌ MEMORY RESTORE FAILED:", err.message);
+function generateSimulationData(symbol, range) {
+    const data = [];
+    let price = marketCache[symbol] || ASSETS[symbol].defaultPrice;
+    let date = new Date();
+    let points = range === '1d' ? 78 : (range === '5d' ? 100 : (range === '1mo' ? 30 : 252));
+    let intervalMinutes = (range === '1d' || range === '5d') ? (range === '1d' ? 5 : 60) : 1440;
+    
+    for(let i = 0; i < points; i++) {
+        data.push({ time: Math.floor(date.getTime()/1000), value: parseFloat(price.toFixed(2)) });
+        price -= (Math.random() * price * (range === '1d' ? 0.002 : 0.02) * 2) - (price * (range === '1d' ? 0.002 : 0.02));
+        date.setMinutes(date.getMinutes() - intervalMinutes);
     }
+    return data.reverse();
 }
 
 // ------------------------------------------
@@ -289,11 +301,9 @@ server.listen(PORT, async () => {
     // 1. Ensure Table Exists
     try {
         await pool.query(`CREATE TABLE IF NOT EXISTS trading_signals (id SERIAL PRIMARY KEY, symbol VARCHAR(10), headline TEXT, sentiment_score DECIMAL, confidence DECIMAL, verdict VARCHAR(20), status VARCHAR(20), reasoning TEXT, entry_price DECIMAL, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`);
+        console.log("✅ SUCCESS: Database Ready.");
     } catch (err) { console.error("DB Init Error:", err.message); }
     
-    // 2. 🧠 RESTORE MEMORY (This fixes the blank screen on reload)
-    await restoreHistory();
-
     // 3. Start AI Scan
     setTimeout(runSmartScan, 10000);
 });
