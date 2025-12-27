@@ -5,8 +5,17 @@ const SignalCard = ({ data }) => {
   // 🛡️ Safety check
   if (!data) return null;
 
-  // 1. Destructure Data
-  const { sentiment_score, confidence, headline, reasoning, timestamp, id, verdict } = data;
+  // 1. Destructure Data (Now includes 'entry_price')
+  const { 
+    sentiment_score, 
+    confidence, 
+    headline, 
+    reasoning, 
+    timestamp, 
+    id, 
+    verdict,
+    entry_price 
+  } = data;
 
   // 2. Logic for 3 States
   const isBullish = sentiment_score >= 4;
@@ -43,7 +52,8 @@ const SignalCard = ({ data }) => {
         background: 'rgba(17, 24, 39, 0.7)', // Dark semi-transparent
         borderLeft: `4px solid ${theme.borderColor}`,
         borderRadius: '0 4px 4px 0',
-        transition: 'all 0.2s ease'
+        transition: 'all 0.2s ease',
+        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.5)'
       }}
     >
       <div className="card-body p-3">
@@ -73,10 +83,13 @@ const SignalCard = ({ data }) => {
           </p>
         </div>
 
-        {/* --- FOOTER --- */}
+        {/* --- FOOTER (Added Entry Price) --- */}
         <div className="d-flex justify-content-between mt-2 pt-1" style={{ fontSize: '9px', color: '#6b7280', fontFamily: 'monospace' }}>
           <span>{new Date(timestamp).toLocaleTimeString()}</span>
-          <span>ID: {id} :: {verdict}</span>
+          <span>
+             ID: {id} :: {verdict} 
+             {entry_price && ` @ $${Number(entry_price).toFixed(2)}`}
+          </span>
         </div>
 
       </div>

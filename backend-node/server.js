@@ -30,7 +30,7 @@ const server = http.createServer(app);
 app.use(helmet());
 app.set('trust proxy', 1); 
 
-const allowedOrigins = ['http://localhost:3000', 'http://127.0.0.1:3000'];
+const allowedOrigins = ['http://localhost:3000', 'http://127.0.0.1:3000', 'https://frontend-ghoul.vercel.app'];
 app.use(cors({
     origin: function (origin, callback) {
         if (!origin) return callback(null, true);
@@ -84,8 +84,24 @@ const ASSETS = {
     'AMD':  { rss: 'https://finance.yahoo.com/rss/headline?s=AMD',  yahooTicker: 'AMD', defaultPrice: 155.00 }
 };
 
+// 🧠 SERVER MEMORY (The "Recall" Fix)
+let signalHistory = [];  // Stores last 50 signals
 let marketCache = {}; 
 let chartCache = {}; 
+
+// ------------------------------------------
+// 🔌 WEBSOCKET CONNECTION (Instant History Dump)
+// ------------------------------------------
+io.on('connection', (socket) => {
+    console.log('New client connected:', socket.id);
+
+    // ⚡ INSTANT RECALL: Send history immediately on connection
+    socket.emit('history_dump', {
+        signals: signalHistory
+    });
+
+    socket.on('disconnect', () => console.log('Client disconnected'));
+});
 
 // ------------------------------------------
 // 🧠 BACKGROUND WORKER LOGIC
@@ -122,7 +138,16 @@ async function processSignal(headline, symbol, currentPrice, isTechnicalCheck = 
                 'INSERT INTO trading_signals (headline, sentiment_score, confidence, reasoning, entry_price, status, symbol, verdict) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *', 
                 [headline, aiData.sentiment_score, aiData.confidence, `[RISK: ${aiData.risk_level}] ${aiData.reasoning}`, currentPrice, finalStatus, symbol, aiData.action]
             ); 
-            io.emit('new_signal', result.rows[0]); 
+            
+            const newSignal = result.rows[0];
+
+            // 🧠 1. SAVE TO MEMORY (For new users who join later)
+            signalHistory.unshift(newSignal);
+            if (signalHistory.length > 50) signalHistory.pop(); // Keep only 50 items
+
+            // ⚡ 2. BROADCAST LIVE (For currently connected users)
+            io.emit('new_signal', newSignal); 
+            
             return true;
         }
         return false;
@@ -229,7 +254,6 @@ app.get('/api/backfill', async (req, res) => {
                         await processSignal(item.title, sym, marketCache[sym] || 0);
                         
                         // 🛑 THE ECONOMY BRAKE: Wait 6 seconds between every single item.
-                        // Gemini Limit: 15 RPM. This puts us at ~10 RPM (Safe Zone).
                         await sleep(6000); 
                     } else {
                         // If we already have it, skip instantly without waiting
