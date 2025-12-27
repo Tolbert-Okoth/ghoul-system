@@ -36,7 +36,11 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 gemini_model = None
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
-    gemini_model = genai.GenerativeModel('gemini-1.5-flash')
+    # FIX: Switched to 'gemini-pro' which is universally available on free tier
+    try:
+        gemini_model = genai.GenerativeModel('gemini-pro')
+    except Exception as e:
+        logger.error(f"Failed to load Gemini model: {e}")
 else:
     logger.warning("⚠️ GEMINI_API_KEY missing. Backup brain offline.")
 
@@ -110,7 +114,7 @@ def ask_groq(system_prompt, user_prompt):
             ],
             model="llama-3.3-70b-versatile",
             temperature=0.3,
-            response_format={"type": "json_object"} # Force JSON mode
+            response_format={"type": "json_object"} 
         )
         return completion.choices[0].message.content
     except Exception as e:
@@ -118,12 +122,13 @@ def ask_groq(system_prompt, user_prompt):
         return None  # Signal failure so we can switch to Gemini
 
 def ask_gemini(system_prompt, user_prompt):
-    """Attempt to get analysis from Gemini (Flash)."""
+    """Attempt to get analysis from Gemini Pro."""
     if not gemini_model: return None
     try:
         # Combine prompts for Gemini
         full_prompt = f"{system_prompt}\n\nUSER INPUT: {user_prompt}"
         response = gemini_model.generate_content(full_prompt)
+        
         # Clean markdown syntax often returned by Gemini
         text = response.text.replace("```json", "").replace("```", "").strip()
         return text
@@ -150,7 +155,7 @@ def analyze():
     data = request.json
     headline = data.get('headline', '')
     symbol = data.get('symbol', 'SPY')
-    mode = data.get('mode', 'standard') # 'standard' (News) or 'technical_only' (Heartbeat)
+    mode = data.get('mode', 'standard') 
 
     print(f"🧠 ANALYZING [{mode.upper()}]: {symbol}")
 
