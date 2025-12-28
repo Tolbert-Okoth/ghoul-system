@@ -14,10 +14,13 @@ import yfinance as yf
 import pandas as pd
 from datetime import datetime, timedelta
 
-# --- ENV SETUP ---
-env_path = Path(__file__).parent.parent / 'backend-node' / '.env'
+# ==============================
+# 🌍 ENV SETUP
+# ==============================
+
+env_path = Path(__file__).parent.parent / "backend-node" / ".env"
 if not env_path.exists():
-    env_path = Path('.env')
+    env_path = Path(".env")
 load_dotenv(env_path)
 
 logging.basicConfig(level=logging.INFO)
@@ -26,11 +29,17 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 CORS(app)
 
-# --- GROQ ---
+# ==============================
+# 🧠 GROQ
+# ==============================
+
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 groq_client = Groq(api_key=GROQ_API_KEY, max_retries=0) if GROQ_API_KEY else None
 
-# --- GEMINI ---
+# ==============================
+# 🧠 GEMINI
+# ==============================
+
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 gemini_model = None
 
@@ -40,7 +49,10 @@ def setup_gemini():
     try:
         genai.configure(api_key=GEMINI_API_KEY)
         models = list(genai.list_models())
-        name = next(m.name for m in models if "generateContent" in m.supported_generation_methods)
+        name = next(
+            m.name for m in models
+            if "generateContent" in m.supported_generation_methods
+        )
         return genai.GenerativeModel(name)
     except Exception as e:
         logger.error(f"Gemini init failed: {e}")
@@ -48,21 +60,43 @@ def setup_gemini():
 
 gemini_model = setup_gemini()
 
-# --- ALPACA ---
+# ==============================
+# 🦙 ALPACA CONFIG (FIXED)
+# ==============================
+
 ALPACA_KEY = os.getenv("ALPACA_API_KEY")
 ALPACA_SECRET = os.getenv("ALPACA_SECRET_KEY")
-ALPACA_BASE = os.getenv("ALPACA_BASE_URL", "https://data.alpaca.markets")
+
+ALPACA_TRADE_URL = os.getenv(
+    "ALPACA_TRADE_URL",
+    "https://paper-api.alpaca.markets"
+)
+
+ALPACA_DATA_URL = os.getenv(
+    "ALPACA_DATA_URL",
+    "https://data.alpaca.markets"
+)
 
 ALPACA_HEADERS = {
     "APCA-API-KEY-ID": ALPACA_KEY,
     "APCA-API-SECRET-KEY": ALPACA_SECRET
 }
 
-# --- FINNHUB ---
+logger.info(f"Alpaca Data URL: {ALPACA_DATA_URL}")
+logger.info(f"Alpaca Trade URL: {ALPACA_TRADE_URL}")
+
+# ==============================
+# 📡 FINNHUB
+# ==============================
+
 FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY")
 
+# ==============================
+# ⏱ CACHE
+# ==============================
+
 TECHNICAL_CACHE = {}
-CACHE_DURATION = 900  # 15 min
+CACHE_DURATION = 900  # 15 minutes
 
 # ==============================
 # 📊 DATA FETCHERS
@@ -87,7 +121,7 @@ def fetch_alpaca(symbol):
         end = datetime.utcnow()
         start = end - timedelta(days=90)
 
-        url = f"{ALPACA_BASE}/v2/stocks/bars"
+        url = f"{ALPACA_DATA_URL}/v2/stocks/bars"
         params = {
             "symbols": symbol,
             "timeframe": "1Day",
@@ -99,8 +133,8 @@ def fetch_alpaca(symbol):
 
         r = requests.get(url, headers=ALPACA_HEADERS, params=params, timeout=10)
         r.raise_for_status()
-        bars = r.json().get("bars", {}).get(symbol)
 
+        bars = r.json().get("bars", {}).get(symbol)
         if not bars:
             return None
 
@@ -118,7 +152,8 @@ def fetch_finnhub(symbol):
     try:
         end = int(time.time())
         start = end - 90 * 24 * 60 * 60
-        url = f"https://finnhub.io/api/v1/stock/candle"
+
+        url = "https://finnhub.io/api/v1/stock/candle"
         params = {
             "symbol": symbol,
             "resolution": "D",
@@ -126,8 +161,10 @@ def fetch_finnhub(symbol):
             "to": end,
             "token": FINNHUB_API_KEY
         }
+
         r = requests.get(url, params=params, timeout=10)
         data = r.json()
+
         if data.get("s") == "ok":
             return pd.DataFrame({"Close": data["c"]})
     except Exception as e:
@@ -148,8 +185,8 @@ def calculate_indicators(df):
 
     avg_gain = gain.ewm(alpha=1/14, min_periods=14).mean()
     avg_loss = loss.ewm(alpha=1/14, min_periods=14).mean()
-    rs = avg_gain / avg_loss
 
+    rs = avg_gain / avg_loss
     rsi = 100 - (100 / (1 + rs))
 
     ema12 = df["Close"].ewm(span=12).mean()
@@ -184,6 +221,7 @@ def calculate_indicators(df):
 
 def get_technicals(symbol):
     now = time.time()
+
     if symbol in TECHNICAL_CACHE:
         cached = TECHNICAL_CACHE[symbol]
         if now - cached["timestamp"] < CACHE_DURATION:
@@ -206,43 +244,51 @@ def get_technicals(symbol):
     return None
 
 # ==============================
-# 🧠 AI ROUTES (UNCHANGED)
+# 🧠 ROUTES
 # ==============================
 
 @app.route("/analyze", methods=["POST"])
 def analyze():
-    data = request.json
-    headline = data.get("headline", "")
+    data = request.json or {}
+
     symbol = data.get("symbol", "SPY")
-    mode = data.get("mode", "standard")
 
     technicals = get_technicals(symbol)
 
     tech_context = "NO DATA"
     if technicals:
         tech_context = f"""
-        PRICE: {technicals['price']}
-        RSI: {technicals['rsi']}
-        MACD: {technicals['macd_trend']}
-        BANDS: {technicals['bb_status']}
-        """
+PRICE: {technicals['price']}
+RSI: {technicals['rsi']}
+MACD: {technicals['macd_trend']}
+BANDS: {technicals['bb_status']}
+"""
 
     return jsonify({
         "sentiment_score": 0,
         "confidence": 0.8,
         "action": "WATCH",
         "risk_level": "MED",
-        "reasoning": tech_context
+        "reasoning": tech_context.strip()
     })
 
 @app.route("/health")
 def health():
     return jsonify({
         "status": "HEALTHY",
-        "alpaca": bool(ALPACA_KEY),
+        "alpaca_keys_loaded": bool(ALPACA_KEY and ALPACA_SECRET),
+        "alpaca_data_url": ALPACA_DATA_URL,
+        "alpaca_trade_url": ALPACA_TRADE_URL,
         "groq": bool(groq_client),
         "gemini": bool(gemini_model)
     })
 
+# ==============================
+# 🚀 RUN
+# ==============================
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+    app.run(
+        host="0.0.0.0",
+        port=int(os.getenv("PORT", 5000))
+    )
