@@ -265,3 +265,38 @@ body {
     background: rgba(0, 243, 255, 0.1);
     box-shadow: 0 0 10px rgba(0, 243, 255, 0.4);
 }
+
+/* --- MOBILE RESPONSIVENESS FIXES --- */
+
+@media (max-width: 768px) {
+    /* 1. Stack the columns vertically */
+    .main-dashboard {
+        flex-direction: column;
+        height: auto;
+        overflow-y: auto;
+    }
+
+    .left-column, .right-column {
+        width: 100%;
+        max-width: 100%;
+        margin-bottom: 20px;
+        overflow: visible;
+    }
+
+    /* 2. FORCE CHART HEIGHT (The Fix) */
+    /* Assuming your chart component has a wrapper class like .chart-panel or .ghoul-chart */
+    .ghoul-chart, .recharts-responsive-container, .panel {
+        min-height: 350px !important; /* Force it to exist */
+    }
+
+    /* 3. Adjust Font Sizes for readability */
+    .app-title {
+        font-size: 1.2rem;
+    }
+
+    /* 4. Fix the Manual/Popup width */
+    .manual-panel {
+        width: 95%;
+        margin: 10px;
+    }
+}
