@@ -29,15 +29,12 @@ const server = http.createServer(app);
 app.use(helmet());
 app.set('trust proxy', 1); 
 
-const allowedOrigins = ['http://localhost:3000', 'http://127.0.0.1:3000', 'https://frontend-ghoul.vercel.app'];
+// 👇 UPDATED: GLOBAL CORS FIX FOR VERCEL
+// We allow '*' (All Origins) to stop the browser from blocking the connection.
 app.use(cors({
-    origin: function (origin, callback) {
-        if (!origin) return callback(null, true);
-        if (allowedOrigins.indexOf(origin) === -1 && process.env.NODE_ENV !== 'production') { }
-        return callback(null, true);
-    },
-    methods: ["GET", "POST"],
-    credentials: true
+    origin: '*', 
+    methods: ['GET', 'POST'],
+    allowedHeaders: ['Content-Type']
 }));
 
 const limiter = rateLimit({
@@ -64,6 +61,7 @@ app.use('/api/v1/intel', signalRoutes);
 // ------------------------------------------
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
+// 👇 SOCKET.IO CORS IS ALSO SET TO '*'
 const io = new Server(server, { 
     cors: { origin: "*", methods: ["GET", "POST"] }
 });
