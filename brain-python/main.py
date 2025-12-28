@@ -33,7 +33,7 @@ if GROQ_API_KEY:
 else:
     logger.warning("⚠️ GROQ_API_KEY missing. Primary brain offline.")
 
-# 2. SETUP HUGGING FACE (Secondary Brain) 🆕
+# 2. SETUP HUGGING FACE (Secondary Brain)
 HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
 HF_API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.3"
 
@@ -61,7 +61,7 @@ def setup_gemini():
 
 gemini_model = setup_gemini()
 
-# 4. SETUP FINNHUB (Data Backup)
+# 4. SETUP FINNHUB (Spare Tire)
 FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY")
 TECHNICAL_CACHE = {}
 CACHE_DURATION = 900 
@@ -210,16 +210,37 @@ def ask_groq(system_prompt, user_prompt):
         return None
 
 def ask_huggingface(system_prompt, user_prompt):
-    """Level 2: Hugging Face API"""
+    """Level 2: Hugging Face API (With 'Model Loading' Fix)"""
     if not HUGGINGFACE_API_KEY: return None
     headers = {"Authorization": f"Bearer {HUGGINGFACE_API_KEY}"}
     payload = {
         "inputs": f"<s>[INST] {system_prompt}\n\n{user_prompt} [/INST]",
         "parameters": {"max_new_tokens": 250, "return_full_text": False}
     }
+    
     try:
         response = requests.post(HF_API_URL, headers=headers, json=payload)
-        return response.json()[0]['generated_text']
+        data = response.json()
+
+        # 👇 THE FIX: If model is sleeping/loading, WAIT and RETRY
+        if isinstance(data, dict) and 'error' in data:
+            if 'estimated_time' in data:
+                wait_time = data['estimated_time']
+                logger.info(f"⏳ HF Model Loading... Waiting {wait_time}s")
+                time.sleep(wait_time) 
+                # Retry once
+                response = requests.post(HF_API_URL, headers=headers, json=payload)
+                data = response.json()
+            else:
+                logger.error(f"❌ HF Returned Error: {data}")
+                return None
+
+        # Check for success (List)
+        if isinstance(data, list) and len(data) > 0 and 'generated_text' in data[0]:
+            return data[0]['generated_text']
+        
+        return None
+
     except Exception as e:
         logger.error(f"❌ HF FAILED: {str(e)}")
         return None
@@ -233,7 +254,11 @@ def ask_gemini(system_prompt, user_prompt):
         text = response.text.replace("```json", "").replace("```", "").strip()
         return text
     except Exception as e:
-        logger.error(f"❌ GEMINI FAILED: {str(e)}")
+        # Simplify the logs to avoid dumping massive HTML
+        if "429" in str(e):
+            logger.error(f"❌ GEMINI RATE LIMIT HIT")
+        else:
+            logger.error(f"❌ GEMINI FAILED: {str(e)[:200]}...") # truncate log
         return None
 
 # --- API ROUTES ---
@@ -278,7 +303,7 @@ def analyze():
     # 1. Try Groq (Primary)
     raw_response = ask_groq(system_instruction, prompt)
     
-    # 2. Try Hugging Face (Secondary - NEW!)
+    # 2. Try Hugging Face (Secondary - NEW FIX)
     if not raw_response:
         print("⚠️ GROQ FAILED. SWITCHING TO HUGGING FACE...")
         raw_response = ask_huggingface(system_instruction, prompt)
