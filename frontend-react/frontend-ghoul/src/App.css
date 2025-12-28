@@ -187,3 +187,81 @@ body {
 
 /* --- SCANLINES --- */
 .scanlines { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06)); background-size: 100% 2px, 3px 100%; pointer-events: none; z-index: 999; opacity: 0.6; }
+
+/* --- MANUAL / POPUP STYLES --- */
+.manual-overlay {
+    position: fixed;
+    top: 0; left: 0; width: 100vw; height: 100vh;
+    background: rgba(0, 0, 0, 0.85);
+    z-index: 2000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    backdrop-filter: blur(5px);
+    animation: fadeIn 0.3s ease-out;
+}
+
+.manual-panel {
+    width: 600px;
+    max-width: 90%;
+    max-height: 85vh;
+    background: #050505;
+    border: 1px solid var(--neon-blue);
+    box-shadow: 0 0 30px rgba(0, 243, 255, 0.15);
+    display: flex;
+    flex-direction: column;
+}
+
+.manual-content {
+    padding: 20px;
+    overflow-y: auto;
+    font-family: var(--font-code);
+    color: #ccc;
+    font-size: 0.9rem;
+    line-height: 1.6;
+}
+
+.manual-section h3 { margin-top: 0; margin-bottom: 10px; font-family: var(--font-main); letter-spacing: 1px; }
+.manual-list { list-style: none; padding-left: 0; }
+.manual-list li { margin-bottom: 8px; border-left: 2px solid #333; padding-left: 10px; }
+
+.sub-section { margin-top: 15px; background: rgba(255,255,255,0.03); padding: 10px; border-radius: 4px; }
+.sub-section strong { color: #fff; display: block; margin-bottom: 5px; }
+
+.note-box {
+    margin-top: 15px;
+    padding: 10px;
+    border: 1px dashed var(--neon-yellow);
+    color: var(--neon-yellow);
+    font-size: 0.8rem;
+    background: rgba(252, 238, 10, 0.05);
+}
+
+.manual-divider { border: 0; border-top: 1px solid #333; margin: 20px 0; }
+.manual-footer { text-align: center; color: #666; font-size: 0.7rem; margin-top: 20px; }
+
+.close-btn {
+    background: none; border: none; color: var(--neon-red);
+    cursor: pointer; font-family: var(--font-code); font-weight: bold;
+    font-size: 1.2rem;
+}
+.close-btn:hover { text-shadow: 0 0 10px var(--neon-red); }
+
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* Help Button Style (For Header) */
+.help-btn {
+    background: transparent;
+    border: 1px solid var(--neon-blue);
+    color: var(--neon-blue);
+    font-family: var(--font-code);
+    padding: 4px 12px;
+    cursor: pointer;
+    font-size: 0.8rem;
+    transition: all 0.2s;
+    margin-left: 20px;
+}
+.help-btn:hover {
+    background: rgba(0, 243, 255, 0.1);
+    box-shadow: 0 0 10px rgba(0, 243, 255, 0.4);
+}

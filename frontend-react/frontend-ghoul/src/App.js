@@ -6,9 +6,12 @@ import NetDirectionPanel from './components/NetDirectionPanel';
 import GhoulChart from './components/GhoulChart';
 import SignalFeed from './components/SignalFeed';
 import WatchlistPanel from './components/WatchlistPanel';
+// 👇 NEW IMPORT: The Manual Component
+import SystemManual from './components/SystemManual';
 
 function App() {
   const [activeSymbol, setActiveSymbol] = useState('SPY'); 
+  const [showManual, setShowManual] = useState(false); // 👇 STATE TO CONTROL POPUP
 
   useEffect(() => {
     // Inject Cyberpunk Fonts
@@ -23,9 +26,17 @@ function App() {
       {/* Visual Polish: CRT Scanline Overlay */}
       <div className="scanlines"></div> 
       
+      {/* 👇 RENDER MANUAL IF STATE IS TRUE */}
+      {showManual && <SystemManual onClose={() => setShowManual(false)} />}
+
       {/* Header Section */}
       <header className="app-header">
-        <h1 className="app-title">GHOUL_COMMAND <span className="highlight">{"// " + activeSymbol}</span></h1>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+            <h1 className="app-title">GHOUL_COMMAND <span className="highlight">{"// " + activeSymbol}</span></h1>
+            {/* 👇 NEW HELP BUTTON */}
+            <button className="help-btn" onClick={() => setShowManual(true)}>? HELP_MANUAL</button>
+        </div>
+
         <div className="status-bar">
           <div className="status-item">
             <span className="status-label">SYSTEM_STATUS</span>
