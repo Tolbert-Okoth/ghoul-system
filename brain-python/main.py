@@ -35,7 +35,8 @@ else:
 
 # 2. SETUP HUGGING FACE (Secondary Brain)
 HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
-HF_API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.3"
+# 👇 FIXED: Updated URL to new 'router' domain
+HF_API_URL = "https://router.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.3"
 
 # 3. SETUP GEMINI (Tertiary Brain)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -222,13 +223,13 @@ def ask_huggingface(system_prompt, user_prompt):
         response = requests.post(HF_API_URL, headers=headers, json=payload)
         data = response.json()
 
-        # 👇 THE FIX: If model is sleeping/loading, WAIT and RETRY
+        # Handle API Error messages (like URL deprecated)
         if isinstance(data, dict) and 'error' in data:
+            # If it's a loading error, wait. If it's a hard error (like URL), fail.
             if 'estimated_time' in data:
                 wait_time = data['estimated_time']
                 logger.info(f"⏳ HF Model Loading... Waiting {wait_time}s")
                 time.sleep(wait_time) 
-                # Retry once
                 response = requests.post(HF_API_URL, headers=headers, json=payload)
                 data = response.json()
             else:
@@ -254,11 +255,10 @@ def ask_gemini(system_prompt, user_prompt):
         text = response.text.replace("```json", "").replace("```", "").strip()
         return text
     except Exception as e:
-        # Simplify the logs to avoid dumping massive HTML
         if "429" in str(e):
             logger.error(f"❌ GEMINI RATE LIMIT HIT")
         else:
-            logger.error(f"❌ GEMINI FAILED: {str(e)[:200]}...") # truncate log
+            logger.error(f"❌ GEMINI FAILED: {str(e)[:200]}...") 
         return None
 
 # --- API ROUTES ---
