@@ -268,35 +268,46 @@ body {
 
 /* --- MOBILE RESPONSIVENESS FIXES --- */
 
+/* --- CRITICAL MOBILE FIXES --- */
+
 @media (max-width: 768px) {
-    /* 1. Stack the columns vertically */
-    .main-dashboard {
-        flex-direction: column;
-        height: auto;
-        overflow-y: auto;
+    /* 1. Unlock the main container height so you can scroll */
+    .app-container, .main-dashboard {
+        height: auto !important;
+        overflow-y: visible !important;
+        display: block !important; /* Disables the strict Grid/Flex lock */
     }
 
+    /* 2. Fix the Columns */
     .left-column, .right-column {
-        width: 100%;
-        max-width: 100%;
+        width: 100% !important;
+        height: auto !important;
+        display: block !important;
+        padding-bottom: 20px;
+    }
+
+    /* 3. FORCE THE CHART TO BE VISIBLE */
+    /* We set a specific pixel height because '100%' is 0 on mobile */
+    .ghoul-chart, .recharts-wrapper, .chart-container {
+        min-height: 400px !important; 
+        height: 400px !important;
+        width: 100% !important;
+        display: block !important;
         margin-bottom: 20px;
-        overflow: visible;
+        background: rgba(0,0,0,0.2); /* Visual debug: faint bg to see if it exists */
     }
 
-    /* 2. FORCE CHART HEIGHT (The Fix) */
-    /* Assuming your chart component has a wrapper class like .chart-panel or .ghoul-chart */
-    .ghoul-chart, .recharts-responsive-container, .panel {
-        min-height: 350px !important; /* Force it to exist */
+    /* 4. FORCE THE DATA STREAM TO BE VISIBLE */
+    .signal-feed, .feed-panel {
+        min-height: 400px !important;
+        height: auto !important;
+        overflow-y: visible !important;
+        border: 1px solid var(--neon-blue); /* Visual border to prove it's there */
     }
-
-    /* 3. Adjust Font Sizes for readability */
-    .app-title {
-        font-size: 1.2rem;
-    }
-
-    /* 4. Fix the Manual/Popup width */
-    .manual-panel {
-        width: 95%;
-        margin: 10px;
+    
+    /* 5. Ensure the feed items don't get hidden */
+    .signal-card {
+        opacity: 1 !important;
+        visibility: visible !important;
     }
 }
