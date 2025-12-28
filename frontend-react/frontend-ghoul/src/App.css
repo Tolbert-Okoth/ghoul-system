@@ -30,9 +30,8 @@ body {
   height: 100vh;
   display: flex;
   flex-direction: column;
-  padding: 15px; /* Reduced padding */
+  padding: 15px; 
   box-sizing: border-box;
-  position: relative;
 }
 
 .main-dashboard {
@@ -52,7 +51,7 @@ body {
   padding-right: 5px; 
 }
 
-/* RIGHT COLUMN (The Fix for the Missing Feed) */
+/* RIGHT COLUMN (Flex Container for Chart + Feed) */
 .right-column {
   display: flex;
   flex-direction: column;
@@ -108,22 +107,21 @@ body {
   flex-shrink: 0;
 }
 
-/* --- TEXT UTILITIES --- */
 .sub-label { font-family: var(--font-code); font-size: 0.7rem; color: #666; text-transform: uppercase; letter-spacing: 1px; }
 .neon-text { font-weight: 700; text-transform: uppercase; }
 
-/* --- CHART PANEL (Resized) --- */
+/* --- CHART PANEL (Resized to 55%) --- */
 .chart-panel { 
-    flex: 0 0 55%; /* Takes 55% of height */
-    min-height: 0; /* Allows it to shrink if needed */
+    flex: 0 0 55%; 
+    min-height: 0; 
 }
 .price-display { font-size: 2.5rem; font-weight: 700; line-height: 1; text-shadow: 0 0 20px rgba(255,255,255,0.2); }
 .live-indicator { font-size: 0.8rem; color: var(--neon-green); margin-left: 15px; font-family: var(--font-code); }
 .live-dot { animation: blink 1s infinite; } @keyframes blink { 50% { opacity: 0; } }
 
-/* --- SIGNAL FEED (Resized) --- */
+/* --- SIGNAL FEED (Takes remaining 45%) --- */
 .feed-panel {
-  flex: 1; /* Takes remaining space (45%) */
+  flex: 1; 
   min-height: 0; 
   overflow: hidden; 
 }
