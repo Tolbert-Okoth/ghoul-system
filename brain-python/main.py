@@ -33,10 +33,15 @@ if GROQ_API_KEY:
 else:
     logger.warning("⚠️ GROQ_API_KEY missing. Primary brain offline.")
 
-# 2. SETUP HUGGING FACE (Secondary Brain)
+# 2. SETUP HUGGING FACE (Secondary Brain - MULTI-MODEL)
 HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
-# 👇 FIXED: Switching to Qwen 2.5 (Most reliable Router model currently)
-HF_API_URL = "https://router.huggingface.co/models/Qwen/Qwen2.5-7B-Instruct"
+
+# 👇 LIST OF MODELS TO TRY (If one 404s, try the next)
+HF_MODELS = [
+    "HuggingFaceH4/zephyr-7b-beta",
+    "mistralai/Mistral-7B-Instruct-v0.3",
+    "google/gemma-2-9b-it"
+]
 
 # 3. SETUP GEMINI (Tertiary Brain)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -211,7 +216,7 @@ def ask_groq(system_prompt, user_prompt):
         return None
 
 def ask_huggingface(system_prompt, user_prompt):
-    """Level 2: Hugging Face API (Qwen Model on Router)"""
+    """Level 2: Hugging Face API (Rotates Models on Error)"""
     if not HUGGINGFACE_API_KEY: return None
     headers = {"Authorization": f"Bearer {HUGGINGFACE_API_KEY}"}
     payload = {
@@ -219,28 +224,36 @@ def ask_huggingface(system_prompt, user_prompt):
         "parameters": {"max_new_tokens": 250, "return_full_text": False}
     }
     
-    try:
-        response = requests.post(HF_API_URL, headers=headers, json=payload)
+    # 👇 CYCLE THROUGH MODELS
+    for model_id in HF_MODELS:
+        router_url = f"https://router.huggingface.co/models/{model_id}"
+        print(f"🔄 HF TRYING MODEL: {model_id}...")
         
-        # Check Status Code
-        if response.status_code != 200:
-            if "estimated_time" in response.text:
-                logger.info(f"⏳ HF Loading... Waiting 10s")
-                time.sleep(10)
-                response = requests.post(HF_API_URL, headers=headers, json=payload)
-            else:
-                logger.error(f"❌ HF STATUS {response.status_code}. SKIPPING TO GEMINI.")
-                return None
+        try:
+            response = requests.post(router_url, headers=headers, json=payload)
+            
+            # Check Status Code
+            if response.status_code != 200:
+                if "estimated_time" in response.text:
+                    logger.info(f"⏳ HF Loading... Waiting 10s")
+                    time.sleep(10)
+                    response = requests.post(router_url, headers=headers, json=payload)
+                elif response.status_code == 404:
+                    logger.error(f"❌ HF 404 (Not Found) for {model_id}. Trying next...")
+                    continue # Try next model
+                else:
+                    logger.error(f"❌ HF STATUS {response.status_code}: {response.text}")
+                    continue
 
-        data = response.json()
-        if isinstance(data, list) and len(data) > 0 and 'generated_text' in data[0]:
-            return data[0]['generated_text']
-        
-        return None
+            data = response.json()
+            if isinstance(data, list) and len(data) > 0 and 'generated_text' in data[0]:
+                return data[0]['generated_text']
+            
+        except Exception as e:
+            logger.error(f"❌ HF EXCEPTION for {model_id}: {str(e)}")
+            continue
 
-    except Exception as e:
-        logger.error(f"❌ HF FAILED: {str(e)}. SKIPPING TO GEMINI.")
-        return None
+    return None # All models failed
 
 def ask_gemini(system_prompt, user_prompt):
     """Level 3: Gemini API (With 25s Retry)"""
@@ -251,8 +264,7 @@ def ask_gemini(system_prompt, user_prompt):
         text = response.text.replace("```json", "").replace("```", "").strip()
         return text
     except Exception as e:
-        # 👇 RATE LIMIT HANDLING (Keep at 25s to outwait the penalty)
-        if "429" in str(e):
+        if "429" in str(e) or "429" in str(e.args):
             logger.warning("⚠️ GEMINI RATE LIMIT HIT. Cooling down 25s...")
             time.sleep(25) 
             try:
@@ -307,7 +319,7 @@ def analyze():
     # 1. Try Groq (Primary)
     raw_response = ask_groq(system_instruction, prompt)
     
-    # 2. Try Hugging Face (Secondary)
+    # 2. Try Hugging Face (Secondary - MULTI-MODEL)
     if not raw_response:
         print("⚠️ GROQ FAILED. SWITCHING TO HUGGING FACE...")
         raw_response = ask_huggingface(system_instruction, prompt)
