@@ -35,8 +35,8 @@ else:
 
 # 2. SETUP HUGGING FACE (Secondary Brain)
 HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
-# 👇 FIXED: Updated to 'router' URL to fix 410 Error
-HF_API_URL = "https://router.huggingface.co/models/microsoft/Phi-3-mini-4k-instruct"
+# 👇 FIXED: Switching to Zephyr (Most reliable on Router)
+HF_API_URL = "https://router.huggingface.co/models/HuggingFaceH4/zephyr-7b-beta"
 
 # 3. SETUP GEMINI (Tertiary Brain)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -211,7 +211,7 @@ def ask_groq(system_prompt, user_prompt):
         return None
 
 def ask_huggingface(system_prompt, user_prompt):
-    """Level 2: Hugging Face API (With Retry Logic)"""
+    """Level 2: Hugging Face API (Router URL)"""
     if not HUGGINGFACE_API_KEY: return None
     headers = {"Authorization": f"Bearer {HUGGINGFACE_API_KEY}"}
     payload = {
@@ -243,7 +243,7 @@ def ask_huggingface(system_prompt, user_prompt):
         return None
 
 def ask_gemini(system_prompt, user_prompt):
-    """Level 3: Gemini API (With Rate Limit Retry)"""
+    """Level 3: Gemini API (Extended Retry)"""
     if not gemini_model: return None
     try:
         full_prompt = f"{system_prompt}\n\nUSER INPUT: {user_prompt}"
@@ -251,9 +251,10 @@ def ask_gemini(system_prompt, user_prompt):
         text = response.text.replace("```json", "").replace("```", "").strip()
         return text
     except Exception as e:
+        # 👇 RATE LIMIT HANDLING (Increased to 25s)
         if "429" in str(e):
-            logger.warning("⚠️ GEMINI RATE LIMIT HIT. Cooling down 10s...")
-            time.sleep(10)
+            logger.warning("⚠️ GEMINI RATE LIMIT HIT. Cooling down 25s...")
+            time.sleep(25) # Increased sleep to clear the 20s penalty
             try:
                 # Retry once
                 response = gemini_model.generate_content(full_prompt)
