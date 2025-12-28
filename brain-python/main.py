@@ -33,17 +33,7 @@ if GROQ_API_KEY:
 else:
     logger.warning("⚠️ GROQ_API_KEY missing. Primary brain offline.")
 
-# 2. SETUP HUGGING FACE (Secondary Brain - MULTI-MODEL)
-HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
-
-# 👇 LIST OF MODELS TO TRY (If one 404s, try the next)
-HF_MODELS = [
-    "HuggingFaceH4/zephyr-7b-beta",
-    "mistralai/Mistral-7B-Instruct-v0.3",
-    "google/gemma-2-9b-it"
-]
-
-# 3. SETUP GEMINI (Tertiary Brain)
+# 2. SETUP GEMINI (Backup Brain)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 gemini_model = None
 
@@ -67,7 +57,7 @@ def setup_gemini():
 
 gemini_model = setup_gemini()
 
-# 4. SETUP FINNHUB (Spare Tire)
+# 3. SETUP FINNHUB (Spare Tire)
 FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY")
 TECHNICAL_CACHE = {}
 CACHE_DURATION = 900 
@@ -215,45 +205,36 @@ def ask_groq(system_prompt, user_prompt):
         logger.error(f"❌ GROQ FAILED: {str(e)}")
         return None
 
-def ask_huggingface(system_prompt, user_prompt):
-    """Level 2: Hugging Face API (Rotates Models on Error)"""
-    if not HUGGINGFACE_API_KEY: return None
-    headers = {"Authorization": f"Bearer {HUGGINGFACE_API_KEY}"}
-    payload = {
-        "inputs": f"<|system|>\n{system_prompt}<|end|>\n<|user|>\n{user_prompt}<|end|>\n<|assistant|>",
-        "parameters": {"max_new_tokens": 250, "return_full_text": False}
-    }
-    
-    # 👇 CYCLE THROUGH MODELS
-    for model_id in HF_MODELS:
-        router_url = f"https://router.huggingface.co/models/{model_id}"
-        print(f"🔄 HF TRYING MODEL: {model_id}...")
+def ask_pollinations(system_prompt, user_prompt):
+    """
+    Level 2: Pollinations AI (The Unlimited Backup)
+    Uses free public endpoints to access OpenAI/Claude models.
+    No API Key required.
+    """
+    try:
+        url = "https://text.pollinations.ai/"
+        headers = {"Content-Type": "application/json"}
+        payload = {
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            "model": "openai", # or 'searchgpt', 'mistral', 'claude'
+            "seed": 42,
+            "jsonMode": True # Pollinations supports JSON mode hint
+        }
         
-        try:
-            response = requests.post(router_url, headers=headers, json=payload)
+        response = requests.post(url, headers=headers, json=payload, timeout=20)
+        
+        if response.status_code == 200:
+            return response.text
+        else:
+            logger.error(f"❌ POLLINATIONS STATUS {response.status_code}: {response.text}")
+            return None
             
-            # Check Status Code
-            if response.status_code != 200:
-                if "estimated_time" in response.text:
-                    logger.info(f"⏳ HF Loading... Waiting 10s")
-                    time.sleep(10)
-                    response = requests.post(router_url, headers=headers, json=payload)
-                elif response.status_code == 404:
-                    logger.error(f"❌ HF 404 (Not Found) for {model_id}. Trying next...")
-                    continue # Try next model
-                else:
-                    logger.error(f"❌ HF STATUS {response.status_code}: {response.text}")
-                    continue
-
-            data = response.json()
-            if isinstance(data, list) and len(data) > 0 and 'generated_text' in data[0]:
-                return data[0]['generated_text']
-            
-        except Exception as e:
-            logger.error(f"❌ HF EXCEPTION for {model_id}: {str(e)}")
-            continue
-
-    return None # All models failed
+    except Exception as e:
+        logger.error(f"❌ POLLINATIONS FAILED: {str(e)}")
+        return None
 
 def ask_gemini(system_prompt, user_prompt):
     """Level 3: Gemini API (With 25s Retry)"""
@@ -264,6 +245,7 @@ def ask_gemini(system_prompt, user_prompt):
         text = response.text.replace("```json", "").replace("```", "").strip()
         return text
     except Exception as e:
+        # Rate Limit handling
         if "429" in str(e) or "429" in str(e.args):
             logger.warning("⚠️ GEMINI RATE LIMIT HIT. Cooling down 25s...")
             time.sleep(25) 
@@ -319,21 +301,21 @@ def analyze():
     # 1. Try Groq (Primary)
     raw_response = ask_groq(system_instruction, prompt)
     
-    # 2. Try Hugging Face (Secondary - MULTI-MODEL)
+    # 2. Try Pollinations (Unlimited Backup) 🆕
     if not raw_response:
-        print("⚠️ GROQ FAILED. SWITCHING TO HUGGING FACE...")
-        raw_response = ask_huggingface(system_instruction, prompt)
+        print("⚠️ GROQ FAILED. SWITCHING TO POLLINATIONS AI...")
+        raw_response = ask_pollinations(system_instruction, prompt)
 
-    # 3. Try Gemini (Tertiary)
+    # 3. Try Gemini (Last Resort)
     if not raw_response:
-        print("⚠️ HUGGING FACE FAILED. SWITCHING TO GEMINI...")
+        print("⚠️ POLLINATIONS FAILED. SWITCHING TO GEMINI...")
         raw_response = ask_gemini(system_instruction, prompt)
 
     if raw_response:
         result = clean_and_parse_json(raw_response)
         if result: return jsonify(result)
     
-    # 4. Try Keyword Backup (Last Resort)
+    # 4. Try Keyword Backup (Doomsday)
     print("🚨 ALL AI SYSTEMS OFFLINE. ENGAGING KEYWORD PROTOCOL.")
     if mode == 'standard' and headline:
         backup_result = emergency_keyword_analysis(headline)
@@ -352,7 +334,7 @@ def health_check():
     return jsonify({
         "status": "HEALTHY", 
         "groq": bool(groq_client), 
-        "huggingface": bool(HUGGINGFACE_API_KEY),
+        "pollinations": True,
         "gemini": bool(gemini_model)
     })
 
