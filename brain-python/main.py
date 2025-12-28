@@ -14,13 +14,11 @@ import yfinance as yf
 import pandas as pd
 
 # --- CONFIGURATION & ENV SETUP ---
-# [FIX] Robust Env Loading: Tries parent folder first (Local), then current folder (Cloud)
 env_path = Path(__file__).parent.parent / 'backend-node' / '.env'
 if not env_path.exists():
     env_path = Path('.env')
 load_dotenv(dotenv_path=env_path)
 
-# Logging Setup
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -31,7 +29,6 @@ CORS(app)
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 groq_client = None
 if GROQ_API_KEY:
-    # max_retries=0 prevents hanging workers during rate limits
     groq_client = Groq(api_key=GROQ_API_KEY, max_retries=0)
 else:
     logger.warning("⚠️ GROQ_API_KEY missing. Primary brain offline.")
@@ -46,7 +43,6 @@ def setup_gemini():
         return None
     try:
         genai.configure(api_key=GEMINI_API_KEY)
-        # Fallback logic to find ANY working model
         all_models = list(genai.list_models())
         available_names = [m.name for m in all_models if 'generateContent' in m.supported_generation_methods]
         
@@ -64,18 +60,14 @@ gemini_model = setup_gemini()
 # 3. SETUP FINNHUB (Spare Tire)
 FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY")
 TECHNICAL_CACHE = {}
-CACHE_DURATION = 900 # 15 minutes
+CACHE_DURATION = 900 
 
 # --- 🧠 DATA ENGINE ---
 
 def fetch_finnhub_data(symbol):
-    """Fallback: Fetch candles from Finnhub if Yahoo fails."""
     if not FINNHUB_API_KEY: return None
-    
-    # Map symbols to standard US tickers for Finnhub Free Tier
     ticker_map = { 'ES=F': 'SPY', 'BTC-USD': 'COIN' }
     ticker = ticker_map.get(symbol, symbol).replace("=F", "").replace("-USD", "")
-    
     print(f"🛞 USING SPARE TIRE: Fetching {ticker} from Finnhub...")
     try:
         end = int(time.time())
@@ -91,48 +83,35 @@ def fetch_finnhub_data(symbol):
         return None
 
 def calculate_indicators(df):
-    """
-    🧮 TRADINGVIEW-COMPLIANT MATH
-    Uses Wilder's Smoothing for RSI and prevents NaN crashes.
-    """
     if df.empty or len(df) < 20: 
         print("⚠️ Dataframe too short for indicators.")
         return None
-
     try:
-        # 1. RSI (14) - Wilder's Smoothing (The "Real" RSI)
         delta = df['Close'].diff()
         gain = delta.where(delta > 0, 0)
         loss = -delta.where(delta < 0, 0)
-        
-        # [FIX] Use EWM with alpha=1/14 to match TradingView
         avg_gain = gain.ewm(alpha=1/14, min_periods=14, adjust=False).mean()
         avg_loss = loss.ewm(alpha=1/14, min_periods=14, adjust=False).mean()
-        
         rs = avg_gain / avg_loss
         df['RSI'] = 100 - (100 / (1 + rs))
 
-        # 2. MACD (12, 26, 9)
         k = df['Close'].ewm(span=12, adjust=False, min_periods=12).mean()
         d = df['Close'].ewm(span=26, adjust=False, min_periods=26).mean()
         macd = k - d
         signal = macd.ewm(span=9, adjust=False, min_periods=9).mean()
 
-        # 3. Bollinger Bands (20, 2)
         sma = df['Close'].rolling(window=20).mean()
         std = df['Close'].rolling(window=20).std()
         upper = sma + (std * 2)
         lower = sma - (std * 2)
         
-        # 4. [FIX] SAFETY: Handle NaNs for the final row
         current_rsi = float(df['RSI'].iloc[-1])
-        if pd.isna(current_rsi): current_rsi = 50.0 # Default to Neutral
+        if pd.isna(current_rsi): current_rsi = 50.0 
 
         current_macd = float(macd.iloc[-1])
         current_signal = float(signal.iloc[-1])
-        if pd.isna(current_macd) or pd.isna(current_signal): 
-            macd_trend = "NEUTRAL"
-        else:
+        macd_trend = "NEUTRAL"
+        if not (pd.isna(current_macd) or pd.isna(current_signal)):
             macd_trend = "BULLISH" if current_macd > current_signal else "BEARISH"
 
         close = float(df['Close'].iloc[-1])
@@ -156,8 +135,6 @@ def calculate_indicators(df):
 def get_technicals(symbol):
     global TECHNICAL_CACHE
     current_time = time.time()
-    
-    # 1. CACHE CHECK
     if symbol in TECHNICAL_CACHE:
         entry = TECHNICAL_CACHE[symbol]
         if (current_time - entry['timestamp']) < CACHE_DURATION:
@@ -165,7 +142,6 @@ def get_technicals(symbol):
             return entry['data']
 
     df = None
-    # 2. TRY YAHOO FINANCE
     try:
         ticker = 'ES=F' if symbol == 'SPY' else symbol
         df = yf.download(ticker, period="3mo", interval="1d", progress=False)
@@ -173,7 +149,6 @@ def get_technicals(symbol):
     except Exception as e:
         print(f"⚠️ Yahoo Failed: {e}")
     
-    # 3. TRY FINNHUB
     if df is None or df.empty:
         df = fetch_finnhub_data(symbol)
 
@@ -185,6 +160,27 @@ def get_technicals(symbol):
     return None
 
 # --- AI HELPERS ---
+
+# 👇 NEW: Level 3 Backup (Dumb Keyword Search)
+def emergency_keyword_analysis(headline):
+    """
+    If Groq AND Gemini both fail, we fallback to counting words.
+    """
+    headline_lower = headline.lower()
+    
+    bullish_words = ["surge", "jump", "record", "high", "beat", "buy", "up", "bull", "growth", "strong", "gain"]
+    bearish_words = ["crash", "drop", "plunge", "low", "miss", "sell", "down", "bear", "fear", "weak", "loss"]
+
+    bull_score = sum(1 for word in bullish_words if word in headline_lower)
+    bear_score = sum(1 for word in bearish_words if word in headline_lower)
+
+    if bull_score > bear_score:
+        return { "action": "BUY", "confidence": 0.5, "sentiment_score": 5, "reasoning": "EMERGENCY BACKUP: Positive keywords detected." }
+    elif bear_score > bull_score:
+        return { "action": "SELL", "confidence": 0.5, "sentiment_score": -5, "reasoning": "EMERGENCY BACKUP: Negative keywords detected." }
+    else:
+        return { "action": "HOLD", "confidence": 0.0, "sentiment_score": 0, "reasoning": "EMERGENCY BACKUP: No clear sentiment found." }
+
 def ask_groq(system_prompt, user_prompt):
     if not groq_client: return None
     try:
@@ -260,17 +256,27 @@ def analyze():
         OUTPUT JSON: {{ "sentiment_score": (int -10 to 10), "confidence": (0.0-1.0), "risk_level": "LOW/MED/HIGH", "action": "BUY/SELL/WATCH", "reasoning": "Why?" }}
         """
 
-    # 1. Try Groq
+    # 1. Try Groq (Primary)
     raw_response = ask_groq(system_instruction, prompt)
     
-    # 2. Try Gemini
+    # 2. Try Gemini (Backup)
     if not raw_response:
-        print("⚠️ SWITCHING TO BACKUP BRAIN (GEMINI)...")
+        print("⚠️ GROQ FAILED. SWITCHING TO GEMINI...")
         raw_response = ask_gemini(system_instruction, prompt)
 
     if raw_response:
         result = clean_and_parse_json(raw_response)
         if result: return jsonify(result)
+    
+    # 3. 👇 NEW: Try Keyword Backup (Last Resort)
+    # If we get here, BOTH AIs failed. We use the "Dumb" mode.
+    print("🚨 ALL AI SYSTEMS OFFLINE. ENGAGING KEYWORD PROTOCOL.")
+    if mode == 'standard' and headline:
+        backup_result = emergency_keyword_analysis(headline)
+        return jsonify({
+            **backup_result, 
+            "risk_level": "UNKNOWN"
+        })
         
     return jsonify({
         "sentiment_score": 0, "confidence": 0, "action": "IGNORE", 
