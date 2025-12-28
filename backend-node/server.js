@@ -82,9 +82,10 @@ const ASSETS = {
     'AMD':  { rss: 'https://finance.yahoo.com/rss/headline?s=AMD',  yahooTicker: 'AMD', defaultPrice: 155.00 }
 };
 
-// 🧠 SERVER MEMORY
+// 🧠 SERVER MEMORY (CACHE)
 let marketCache = {}; 
-let chartCache = {}; 
+// 👇 NEW: Stores chart data to prevent banning
+let historyCache = {}; 
 
 // ------------------------------------------
 // 🔌 WEBSOCKET CONNECTION
@@ -116,7 +117,6 @@ async function processSignal(headline, symbol, currentPrice, isTechnicalCheck = 
             ? `${process.env.PYTHON_MICROSERVICE_URL}/analyze` 
             : 'http://127.0.0.1:5000/analyze';
         
-        // 1. CALL THE BRAIN
         const brainResponse = await axios.post(brainURL, { 
             headline: headline, symbol: symbol, mode: isTechnicalCheck ? 'technical_only' : 'standard' 
         });
@@ -126,7 +126,6 @@ async function processSignal(headline, symbol, currentPrice, isTechnicalCheck = 
         const aiData = brainResponse.data;
         console.log(`${logPrefix} ${symbol}: 🧠 Brain Replied -> ${aiData.action} (${aiData.confidence})`);
         
-        // 2. SANITIZE DATA
         const safePrice = isNaN(parseFloat(currentPrice)) ? 0.0 : parseFloat(currentPrice);
         const safeScore = isNaN(parseFloat(aiData.sentiment_score)) ? 0.0 : parseFloat(aiData.sentiment_score);
         const safeConf = isNaN(parseFloat(aiData.confidence)) ? 0.0 : parseFloat(aiData.confidence);
@@ -135,7 +134,6 @@ async function processSignal(headline, symbol, currentPrice, isTechnicalCheck = 
         
         let finalStatus = safeVerdict === 'IGNORE' || safeConf < 0.30 ? 'NOISE' : (safeConf < 0.60 ? 'PASSIVE' : 'ACTIVE');
         
-        // 3. SAVE TO DB
         if (finalStatus !== 'NOISE' || isTechnicalCheck) {
             try {
                 const result = await pool.query(
@@ -167,7 +165,6 @@ async function runSmartScan() {
     console.log("📡 PULSE: Starting Dual-Scan Cycle...");
     
     for (const sym of Object.keys(ASSETS)) {
-        // PHASE 1: NEWS INTELLIGENCE
         try {
             const feed = await parser.parseURL(ASSETS[sym].rss);
             const latestItem = feed.items[0]; 
@@ -179,7 +176,6 @@ async function runSmartScan() {
             }
         } catch (err) { console.error(`❌ RSS Error for ${sym}: ${err.message}`); }
 
-        // PHASE 2: TECHNICAL ANALYSIS
         console.log(`📈 INITIATING TECHNICAL CHECK for ${sym}...`);
         await processSignal("Technical Market Check", sym, marketCache[sym] || 0, true);
         
@@ -187,18 +183,27 @@ async function runSmartScan() {
     }
 
     console.log("\n✅ SCAN COMPLETE. Sleeping 30 minutes.");
-    // 👇 CHANGED: 30 minutes = 1,800,000 milliseconds
     setTimeout(runSmartScan, 1800000);
 }
 
 // ------------------------------------------
-// 📈 CHART DATA (REAL MARKET DATA UPGRADE)
+// 📈 CHART DATA (WITH SAFETY CACHE)
 // ------------------------------------------
 app.get('/api/v1/history', async (req, res) => {
     const symbol = req.query.symbol || 'SPY';
     const range = req.query.range || '1y'; 
     const ticker = ASSETS[symbol] ? ASSETS[symbol].yahooTicker : 'SPY';
     
+    // 1. CHECK CACHE FIRST (The Safety Shield)
+    const cacheKey = `${symbol}_${range}`;
+    const now = Date.now();
+    
+    // If we have data less than 15 minutes old, return it instantly
+    if (historyCache[cacheKey] && (now - historyCache[cacheKey].timestamp < 15 * 60 * 1000)) {
+        console.log(`⚡ Serving Cached Data for ${symbol} (${range})`);
+        return res.json(historyCache[cacheKey].data);
+    }
+
     try {
         const endDate = new Date();
         const startDate = new Date();
@@ -213,7 +218,7 @@ app.get('/api/v1/history', async (req, res) => {
             default: startDate.setFullYear(endDate.getFullYear() - 1);
         }
 
-        console.log(`📊 Fetching REAL data for ${ticker} (${range})...`);
+        console.log(`📊 Fetching FRESH Yahoo data for ${ticker} (${range})...`);
         const queryOptions = { period1: startDate, period2: endDate, interval: interval };
         const result = await yahooFinance.historical(ticker, queryOptions);
 
@@ -223,6 +228,12 @@ app.get('/api/v1/history', async (req, res) => {
             time: new Date(quote.date).getTime() / 1000,
             value: quote.close
         })).filter(p => p.value !== null); 
+
+        // 2. SAVE TO CACHE
+        historyCache[cacheKey] = {
+            timestamp: now,
+            data: formattedData
+        };
 
         if (formattedData.length > 0) {
             marketCache[symbol] = formattedData[formattedData.length - 1].value;
