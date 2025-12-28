@@ -33,7 +33,11 @@ if GROQ_API_KEY:
 else:
     logger.warning("⚠️ GROQ_API_KEY missing. Primary brain offline.")
 
-# 2. SETUP GEMINI (Backup Brain)
+# 2. SETUP HUGGING FACE (Secondary Brain) 🆕
+HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
+HF_API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.3"
+
+# 3. SETUP GEMINI (Tertiary Brain)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 gemini_model = None
 
@@ -57,7 +61,7 @@ def setup_gemini():
 
 gemini_model = setup_gemini()
 
-# 3. SETUP FINNHUB (Spare Tire)
+# 4. SETUP FINNHUB (Data Backup)
 FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY")
 TECHNICAL_CACHE = {}
 CACHE_DURATION = 900 
@@ -161,11 +165,8 @@ def get_technicals(symbol):
 
 # --- AI HELPERS ---
 
-# 👇 NEW: Level 3 Backup (Dumb Keyword Search)
 def emergency_keyword_analysis(headline):
-    """
-    If Groq AND Gemini both fail, we fallback to counting words.
-    """
+    """Level 4: Dumb Keyword Search"""
     headline_lower = headline.lower()
     
     bullish_words = ["surge", "jump", "record", "high", "beat", "buy", "up", "bull", "growth", "strong", "gain"]
@@ -180,6 +181,16 @@ def emergency_keyword_analysis(headline):
         return { "action": "SELL", "confidence": 0.5, "sentiment_score": -5, "reasoning": "EMERGENCY BACKUP: Negative keywords detected." }
     else:
         return { "action": "HOLD", "confidence": 0.0, "sentiment_score": 0, "reasoning": "EMERGENCY BACKUP: No clear sentiment found." }
+
+def clean_and_parse_json(content):
+    try:
+        clean_content = re.sub(r'```json\s*|\s*```', '', content)
+        match = re.search(r'\{.*\}', clean_content, re.DOTALL)
+        if match: return json.loads(match.group(0))
+        return None
+    except Exception: return None
+
+# --- AI PROVIDER CALLS ---
 
 def ask_groq(system_prompt, user_prompt):
     if not groq_client: return None
@@ -198,7 +209,23 @@ def ask_groq(system_prompt, user_prompt):
         logger.error(f"❌ GROQ FAILED: {str(e)}")
         return None
 
+def ask_huggingface(system_prompt, user_prompt):
+    """Level 2: Hugging Face API"""
+    if not HUGGINGFACE_API_KEY: return None
+    headers = {"Authorization": f"Bearer {HUGGINGFACE_API_KEY}"}
+    payload = {
+        "inputs": f"<s>[INST] {system_prompt}\n\n{user_prompt} [/INST]",
+        "parameters": {"max_new_tokens": 250, "return_full_text": False}
+    }
+    try:
+        response = requests.post(HF_API_URL, headers=headers, json=payload)
+        return response.json()[0]['generated_text']
+    except Exception as e:
+        logger.error(f"❌ HF FAILED: {str(e)}")
+        return None
+
 def ask_gemini(system_prompt, user_prompt):
+    """Level 3: Gemini API"""
     if not gemini_model: return None
     try:
         full_prompt = f"{system_prompt}\n\nUSER INPUT: {user_prompt}"
@@ -208,14 +235,6 @@ def ask_gemini(system_prompt, user_prompt):
     except Exception as e:
         logger.error(f"❌ GEMINI FAILED: {str(e)}")
         return None
-
-def clean_and_parse_json(content):
-    try:
-        clean_content = re.sub(r'```json\s*|\s*```', '', content)
-        match = re.search(r'\{.*\}', clean_content, re.DOTALL)
-        if match: return json.loads(match.group(0))
-        return None
-    except Exception: return None
 
 # --- API ROUTES ---
 @app.route('/analyze', methods=['POST'])
@@ -259,17 +278,21 @@ def analyze():
     # 1. Try Groq (Primary)
     raw_response = ask_groq(system_instruction, prompt)
     
-    # 2. Try Gemini (Backup)
+    # 2. Try Hugging Face (Secondary - NEW!)
     if not raw_response:
-        print("⚠️ GROQ FAILED. SWITCHING TO GEMINI...")
+        print("⚠️ GROQ FAILED. SWITCHING TO HUGGING FACE...")
+        raw_response = ask_huggingface(system_instruction, prompt)
+
+    # 3. Try Gemini (Tertiary)
+    if not raw_response:
+        print("⚠️ HUGGING FACE FAILED. SWITCHING TO GEMINI...")
         raw_response = ask_gemini(system_instruction, prompt)
 
     if raw_response:
         result = clean_and_parse_json(raw_response)
         if result: return jsonify(result)
     
-    # 3. 👇 NEW: Try Keyword Backup (Last Resort)
-    # If we get here, BOTH AIs failed. We use the "Dumb" mode.
+    # 4. Try Keyword Backup (Last Resort)
     print("🚨 ALL AI SYSTEMS OFFLINE. ENGAGING KEYWORD PROTOCOL.")
     if mode == 'standard' and headline:
         backup_result = emergency_keyword_analysis(headline)
@@ -285,7 +308,12 @@ def analyze():
 
 @app.route('/health', methods=['GET'])
 def health_check():
-    return jsonify({"status": "HEALTHY", "groq": bool(groq_client), "gemini": bool(gemini_model)})
+    return jsonify({
+        "status": "HEALTHY", 
+        "groq": bool(groq_client), 
+        "huggingface": bool(HUGGINGFACE_API_KEY),
+        "gemini": bool(gemini_model)
+    })
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
