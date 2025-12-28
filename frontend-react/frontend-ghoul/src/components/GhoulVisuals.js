@@ -6,37 +6,49 @@ const GhoulVisuals = ({ symbol }) => {
     const [reason, setReason] = useState("Analyzing market data...");
     const [confidence, setConfidence] = useState(0);
     const [tags, setTags] = useState([]);
+    const [error, setError] = useState(null); // New Error State
 
     useEffect(() => {
         const fetchData = async () => {
             try {
+                setError(null); // Clear errors on new attempt
+                
                 // 1. Get Verdict & Reasoning
                 const verdictRes = await axios.get(`https://ghoul-system.onrender.com/api/v1/intel/overall-verdict?symbol=${symbol}`);
-                setSentiment(verdictRes.data.verdict);
+                setSentiment(verdictRes.data.verdict || "NEUTRAL");
                 setReason(verdictRes.data.reason || "No clear signal detected.");
-                setConfidence(verdictRes.data.confidence || 75);
+                setConfidence(verdictRes.data.confidence || 0);
 
                 // 2. Get Hot Topics
                 const tagsRes = await axios.get('https://ghoul-system.onrender.com/api/v1/intel/hot-topics');
                 setTags(tagsRes.data.slice(0, 5)); 
-            } catch (e) { console.error(e); }
+            } catch (e) { 
+                console.error("GhoulVisuals Error:", e);
+                // 👇 This will tell us if it's CORS, Network, or Server Error
+                if (e.message === "Network Error") {
+                    setReason("⚠️ NETWORK ERROR: Check CORS or Backend Status");
+                    setError("OFFLINE");
+                } else {
+                    setReason(`⚠️ API ERROR: ${e.response ? e.response.status : e.message}`);
+                    setError("CRASH");
+                }
+            }
         };
         
         fetchData();
-        const interval = setInterval(fetchData, 5000); // Check every 5s
+        const interval = setInterval(fetchData, 5000); 
         return () => clearInterval(interval);
     }, [symbol]);
 
-    // Dynamic Color Logic based on Nuance
+    // Dynamic Color Logic
     const getGlowColor = () => {
+        if (error) return "var(--neon-red)"; // Error State
         if (sentiment.includes("STRONG") && sentiment.includes("BULL")) return "var(--neon-green)";
-        if (sentiment.includes("WEAK") && sentiment.includes("BULL")) return "var(--neon-yellow)"; // Weak Bull = Caution
+        if (sentiment.includes("WEAK") && sentiment.includes("BULL")) return "var(--neon-yellow)"; 
         if (sentiment.includes("BULL")) return "var(--neon-green)";
-        
         if (sentiment.includes("STRONG") && sentiment.includes("BEAR")) return "var(--neon-red)";
-        if (sentiment.includes("WEAK") && sentiment.includes("BEAR")) return "#ff8800"; // Weak Bear = Orange
+        if (sentiment.includes("WEAK") && sentiment.includes("BEAR")) return "#ff8800"; 
         if (sentiment.includes("BEAR")) return "var(--neon-red)";
-        
         return "#888";
     };
 
@@ -49,21 +61,21 @@ const GhoulVisuals = ({ symbol }) => {
                 <div className="sub-label">AI_CONSENSUS</div>
                 <div className="neon-text" style={{ 
                     color: getGlowColor(), 
-                    fontSize: '1.4rem', // Slightly smaller to fit "STRONGLY BULLISH"
+                    fontSize: '1.4rem', 
                     textShadow: `0 0 15px ${getGlowColor()}`,
                     letterSpacing: '1px'
                 }}>
-                    {sentiment}
+                    {error ? "SYSTEM_FAILURE" : sentiment}
                 </div>
             </div>
 
-            {/* THE REASONING ENGINE (New) */}
+            {/* THE REASONING ENGINE */}
             <div style={{ marginBottom: '20px', padding: '10px', background: 'rgba(255,255,255,0.03)', borderLeft: `2px solid ${getGlowColor()}` }}>
                 <div className="sub-label" style={{ marginBottom: '5px' }}>STRATEGIC_RATIONALE</div>
                 <div style={{ 
                     fontFamily: 'var(--font-code)', 
                     fontSize: '0.8rem', 
-                    color: '#ddd', 
+                    color: error ? '#ff4444' : '#ddd', 
                     lineHeight: '1.4' 
                 }}>
                     "{reason}"
@@ -89,9 +101,9 @@ const GhoulVisuals = ({ symbol }) => {
 
             {/* TAGS */}
             <div className="tags-container">
-                {tags.map((t, i) => (
+                {tags.length > 0 ? tags.map((t, i) => (
                     <span key={i} className="narrative-tag">#{t.word.toUpperCase()}</span>
-                ))}
+                )) : <span className="narrative-tag" style={{ opacity: 0.5 }}>NO_DATA</span>}
             </div>
         </div>
     );
