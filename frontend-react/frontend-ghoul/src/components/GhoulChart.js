@@ -46,8 +46,7 @@ const GhoulChart = ({ symbol }) => {
     }, [symbol, range]); 
 
     return (
-        // 👇 UPDATED CONTAINER: Added minHeight to force the chart to appear
-        <div className="panel chart-panel" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: '350px' }}>
+        <div className="panel chart-panel" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: '500px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
                 <div>
                     <div className="panel-header">PRICE_ACTION // {symbol}</div>
@@ -70,9 +69,9 @@ const GhoulChart = ({ symbol }) => {
                 </div>
             </div>
             
-            {/* 👇 CRITICAL FIX: The chart needs a parent with explicit height */}
-            <div style={{ flex: 1, width: '100%', minHeight: '0' }}>
-                <ResponsiveContainer width="100%" height="100%">
+            {/* 👇 FIX: Fixed pixel height (400) stops the warning */}
+            <div style={{ flex: 1, width: '100%', minHeight: '400px' }}>
+                <ResponsiveContainer width="100%" height={400}>
                     <AreaChart data={data} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
                         <defs>
                             <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
