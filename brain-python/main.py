@@ -35,8 +35,8 @@ else:
 
 # 2. SETUP HUGGING FACE (Secondary Brain)
 HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
-# 👇 FIXED: Switching to Zephyr (Most reliable on Router)
-HF_API_URL = "https://router.huggingface.co/models/HuggingFaceH4/zephyr-7b-beta"
+# 👇 FIXED: Switching to Qwen 2.5 (Most reliable Router model currently)
+HF_API_URL = "https://router.huggingface.co/models/Qwen/Qwen2.5-7B-Instruct"
 
 # 3. SETUP GEMINI (Tertiary Brain)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -211,7 +211,7 @@ def ask_groq(system_prompt, user_prompt):
         return None
 
 def ask_huggingface(system_prompt, user_prompt):
-    """Level 2: Hugging Face API (Router URL)"""
+    """Level 2: Hugging Face API (Qwen Model on Router)"""
     if not HUGGINGFACE_API_KEY: return None
     headers = {"Authorization": f"Bearer {HUGGINGFACE_API_KEY}"}
     payload = {
@@ -229,7 +229,7 @@ def ask_huggingface(system_prompt, user_prompt):
                 time.sleep(10)
                 response = requests.post(HF_API_URL, headers=headers, json=payload)
             else:
-                logger.error(f"❌ HF STATUS {response.status_code}: {response.text}")
+                logger.error(f"❌ HF STATUS {response.status_code}. SKIPPING TO GEMINI.")
                 return None
 
         data = response.json()
@@ -239,11 +239,11 @@ def ask_huggingface(system_prompt, user_prompt):
         return None
 
     except Exception as e:
-        logger.error(f"❌ HF FAILED: {str(e)}")
+        logger.error(f"❌ HF FAILED: {str(e)}. SKIPPING TO GEMINI.")
         return None
 
 def ask_gemini(system_prompt, user_prompt):
-    """Level 3: Gemini API (Extended Retry)"""
+    """Level 3: Gemini API (With 25s Retry)"""
     if not gemini_model: return None
     try:
         full_prompt = f"{system_prompt}\n\nUSER INPUT: {user_prompt}"
@@ -251,12 +251,11 @@ def ask_gemini(system_prompt, user_prompt):
         text = response.text.replace("```json", "").replace("```", "").strip()
         return text
     except Exception as e:
-        # 👇 RATE LIMIT HANDLING (Increased to 25s)
+        # 👇 RATE LIMIT HANDLING (Keep at 25s to outwait the penalty)
         if "429" in str(e):
             logger.warning("⚠️ GEMINI RATE LIMIT HIT. Cooling down 25s...")
-            time.sleep(25) # Increased sleep to clear the 20s penalty
+            time.sleep(25) 
             try:
-                # Retry once
                 response = gemini_model.generate_content(full_prompt)
                 return response.text.replace("```json", "").replace("```", "").strip()
             except Exception as retry_err:
