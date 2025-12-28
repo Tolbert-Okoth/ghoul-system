@@ -50,6 +50,10 @@ app.use(express.json());
 // ------------------------------------------
 // 🚦 ROUTES & CONTROLLERS
 // ------------------------------------------
+app.get('/', (req, res) => {
+    res.send(`<div style="background:#000; color:#0f0; font-family:monospace; height:100vh; display:flex; justify-content:center; align-items:center;"><h1>⚡ GHOUL_SYSTEM_BACKEND // STATUS: ONLINE</h1></div>`);
+});
+
 app.get('/health', (req, res) => {
     res.status(200).send('ALIVE');
 });
@@ -84,7 +88,6 @@ const ASSETS = {
 
 // 🧠 SERVER MEMORY (CACHE)
 let marketCache = {}; 
-// 👇 NEW: Stores chart data to prevent banning
 let historyCache = {}; 
 
 // ------------------------------------------
@@ -92,16 +95,12 @@ let historyCache = {};
 // ------------------------------------------
 io.on('connection', async (socket) => {
     console.log('New client connected:', socket.id);
-
     try {
-        console.log("🔍 Fetching history directly from DB...");
         const result = await pool.query("SELECT * FROM trading_signals ORDER BY timestamp DESC LIMIT 50");
         socket.emit('history_dump', { signals: result.rows });
     } catch (err) {
-        console.error("❌ History Fetch Failed:", err.message);
         socket.emit('history_dump', { signals: [] });
     }
-
     socket.on('disconnect', () => console.log('Client disconnected'));
 });
 
@@ -140,35 +139,27 @@ async function processSignal(headline, symbol, currentPrice, isTechnicalCheck = 
                     'INSERT INTO trading_signals (headline, sentiment_score, confidence, reasoning, entry_price, status, symbol, verdict) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *', 
                     [headline, safeScore, safeConf, `[RISK: ${aiData.risk_level}] ${safeReason}`, safePrice, finalStatus, symbol, safeVerdict]
                 ); 
-                
                 const newSignal = result.rows[0];
                 io.emit('new_signal', newSignal); 
                 return true;
             } catch (dbErr) {
-                console.error(`❌ DB INSERT FAILED: ${dbErr.message}`);
                 io.emit('new_signal', {
                     id: Date.now(), symbol, headline, verdict: safeVerdict, confidence: safeConf, reasoning: safeReason + " (Live Only)", timestamp: new Date()
                 });
             }
         }
         return false;
-    } catch (err) { 
-        console.error(`Error processing ${symbol}: ${err.message}`); 
-        return false; 
-    }
+    } catch (err) { return false; }
 }
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-// === 🧠 DUAL-CORE SCANNER: NEWS + TECHNICALS ===
 async function runSmartScan() {
     console.log("📡 PULSE: Starting Dual-Scan Cycle...");
-    
     for (const sym of Object.keys(ASSETS)) {
         try {
             const feed = await parser.parseURL(ASSETS[sym].rss);
             const latestItem = feed.items[0]; 
-
             if (latestItem) {
                 console.log(`📰 NEWS DETECTED: "${latestItem.title}"`);
                 await processSignal(latestItem.title, sym, marketCache[sym] || 0, false);
@@ -178,102 +169,118 @@ async function runSmartScan() {
 
         console.log(`📈 INITIATING TECHNICAL CHECK for ${sym}...`);
         await processSignal("Technical Market Check", sym, marketCache[sym] || 0, true);
-        
         await sleep(5000); 
     }
-
     console.log("\n✅ SCAN COMPLETE. Sleeping 30 minutes.");
     setTimeout(runSmartScan, 1800000);
 }
 
 // ------------------------------------------
-// 📈 CHART DATA (WITH SAFETY CACHE)
+// 🔁 DATA FETCHING STRATEGY (FAIL-SWITCH)
 // ------------------------------------------
-app.get('/api/v1/history', async (req, res) => {
-    const symbol = req.query.symbol || 'SPY';
-    const range = req.query.range || '1y'; 
-    const ticker = ASSETS[symbol] ? ASSETS[symbol].yahooTicker : 'SPY';
-    
-    // 1. CHECK CACHE FIRST (The Safety Shield)
-    const cacheKey = `${symbol}_${range}`;
-    const now = Date.now();
-    
-    // If we have data less than 15 minutes old, return it instantly
-    if (historyCache[cacheKey] && (now - historyCache[cacheKey].timestamp < 15 * 60 * 1000)) {
-        console.log(`⚡ Serving Cached Data for ${symbol} (${range})`);
-        return res.json(historyCache[cacheKey].data);
+
+// 1. PRIMARY: Yahoo Finance
+async function fetchYahooData(ticker, range) {
+    const endDate = new Date();
+    const startDate = new Date();
+    let interval = '1d';
+
+    switch(range) {
+        case '1d': startDate.setDate(endDate.getDate() - 2); interval = '15m'; break;
+        case '1mo': startDate.setMonth(endDate.getMonth() - 1); interval = '1d'; break;
+        case '1y': startDate.setFullYear(endDate.getFullYear() - 1); interval = '1wk'; break;
+        default: startDate.setFullYear(endDate.getFullYear() - 1);
     }
+    
+    const queryOptions = { period1: startDate, period2: endDate, interval: interval };
+    const result = await yahooFinance.historical(ticker, queryOptions);
+    
+    return result.map(quote => ({
+        time: new Date(quote.date).getTime() / 1000,
+        value: quote.close
+    })).filter(p => p.value !== null);
+}
 
-    try {
-        const endDate = new Date();
-        const startDate = new Date();
-        let interval = '1d';
+// 2. BACKUP: Finnhub
+async function fetchFinnhubData(symbol, range) {
+    if (!process.env.FINNHUB_API_KEY) throw new Error("No Finnhub Key");
 
-        switch(range) {
-            case '1d': startDate.setDate(endDate.getDate() - 2); interval = '15m'; break;
-            case '1mo': startDate.setMonth(endDate.getMonth() - 1); interval = '1d'; break;
-            case '3mo': startDate.setMonth(endDate.getMonth() - 3); interval = '1d'; break;
-            case '1y': startDate.setFullYear(endDate.getFullYear() - 1); interval = '1wk'; break;
-            case 'ytd': startDate.setMonth(0); startDate.setDate(1); interval = '1d'; break;
-            default: startDate.setFullYear(endDate.getFullYear() - 1);
-        }
+    // Map ranges to Finnhub Resolution
+    let resolution = 'D';
+    let fromDate = Math.floor(Date.now() / 1000) - (86400 * 30); // Default 1 month
 
-        console.log(`📊 Fetching FRESH Yahoo data for ${ticker} (${range})...`);
-        const queryOptions = { period1: startDate, period2: endDate, interval: interval };
-        const result = await yahooFinance.historical(ticker, queryOptions);
+    if (range === '1d') { resolution = '60'; fromDate = Math.floor(Date.now() / 1000) - (86400 * 2); }
+    if (range === '1y') { resolution = 'W'; fromDate = Math.floor(Date.now() / 1000) - (31536000); }
 
-        if (!result || result.length === 0) throw new Error("No data returned");
+    const url = `https://finnhub.io/api/v1/stock/candle?symbol=${symbol}&resolution=${resolution}&from=${fromDate}&to=${Math.floor(Date.now()/1000)}&token=${process.env.FINNHUB_API_KEY}`;
+    
+    const response = await axios.get(url);
+    if (response.data.s === 'no_data') throw new Error("Finnhub No Data");
 
-        const formattedData = result.map(quote => ({
-            time: new Date(quote.date).getTime() / 1000,
-            value: quote.close
-        })).filter(p => p.value !== null); 
+    // Finnhub returns { c: [prices], t: [timestamps] }
+    return response.data.t.map((timestamp, index) => ({
+        time: timestamp,
+        value: response.data.c[index]
+    }));
+}
 
-        // 2. SAVE TO CACHE
-        historyCache[cacheKey] = {
-            timestamp: now,
-            data: formattedData
-        };
-
-        if (formattedData.length > 0) {
-            marketCache[symbol] = formattedData[formattedData.length - 1].value;
-        }
-
-        res.json(formattedData);
-
-    } catch (err) {
-        console.error(`❌ Yahoo Data Error for ${symbol}:`, err.message);
-        console.log("⚠️ Fallback to Simulation...");
-        res.json(generateSimulationData(symbol, range));
-    }
-});
-
+// 3. EMERGENCY: Simulation
 function generateSimulationData(symbol, range) {
     const data = [];
     let price = marketCache[symbol] || ASSETS[symbol].defaultPrice;
     let date = new Date();
     let points = range === '1d' ? 50 : 100;
-    
     for(let i = 0; i < points; i++) {
-        data.push({ time: Math.floor(date.getTime()/1000), value: parseFloat(price.toFixed(2)), isSimulated: true });
+        data.push({ time: Math.floor(date.getTime()/1000), value: parseFloat(price.toFixed(2)) });
         price -= (Math.random() - 0.5) * 2;
         date.setMinutes(date.getMinutes() - 60);
     }
     return data.reverse();
 }
 
-// ------------------------------------------
-// 🔌 STARTUP SEQUENCE
-// ------------------------------------------
+app.get('/api/v1/history', async (req, res) => {
+    const symbol = req.query.symbol || 'SPY';
+    const range = req.query.range || '1y'; 
+    const ticker = ASSETS[symbol] ? ASSETS[symbol].yahooTicker : 'SPY';
+    
+    // CACHE CHECK
+    const cacheKey = `${symbol}_${range}`;
+    const now = Date.now();
+    if (historyCache[cacheKey] && (now - historyCache[cacheKey].timestamp < 15 * 60 * 1000)) {
+        return res.json(historyCache[cacheKey].data);
+    }
+
+    let finalData = [];
+    
+    // 🛡️ FAIL-SWITCH LOGIC
+    try {
+        console.log(`📊 [ATTEMPT 1] Fetching Yahoo: ${symbol}`);
+        finalData = await fetchYahooData(ticker, range);
+    } catch (yahooErr) {
+        console.error(`⚠️ Yahoo Failed (${yahooErr.message}). Switching to Finnhub...`);
+        try {
+            console.log(`🛡️ [ATTEMPT 2] Fetching Finnhub: ${symbol}`);
+            finalData = await fetchFinnhubData(symbol, range);
+        } catch (finnhubErr) {
+            console.error(`🚨 Finnhub Failed (${finnhubErr.message}). Engaging Simulation.`);
+            finalData = generateSimulationData(symbol, range);
+        }
+    }
+
+    // UPDATE CACHE & RESPOND
+    if (finalData.length > 0) {
+        historyCache[cacheKey] = { timestamp: now, data: finalData };
+        marketCache[symbol] = finalData[finalData.length - 1].value;
+    }
+    res.json(finalData);
+});
+
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, async () => { 
     console.log(`GHOUL_COMMAND_CENTER: LIVE (Port ${PORT})`);
-    
     try {
         await pool.query(`CREATE TABLE IF NOT EXISTS trading_signals (id SERIAL PRIMARY KEY, symbol VARCHAR(10), headline TEXT, sentiment_score DECIMAL, confidence DECIMAL, verdict VARCHAR(20), status VARCHAR(20), reasoning TEXT, entry_price DECIMAL, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`);
         console.log("✅ DATABASE: Ready.");
     } catch (err) { console.error("DB Init Error:", err.message); }
-
-    // Start Scan
     setTimeout(runSmartScan, 5000);
 });
