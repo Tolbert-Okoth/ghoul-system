@@ -35,8 +35,8 @@ else:
 
 # 2. SETUP HUGGING FACE (Secondary Brain)
 HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
-# 👇 FIXED: Switched to Microsoft Phi-3 (Stable & Ungated)
-HF_API_URL = "https://api-inference.huggingface.co/models/microsoft/Phi-3-mini-4k-instruct"
+# 👇 FIXED: Updated to 'router' URL to fix 410 Error
+HF_API_URL = "https://router.huggingface.co/models/microsoft/Phi-3-mini-4k-instruct"
 
 # 3. SETUP GEMINI (Tertiary Brain)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -211,7 +211,7 @@ def ask_groq(system_prompt, user_prompt):
         return None
 
 def ask_huggingface(system_prompt, user_prompt):
-    """Level 2: Hugging Face API (Microsoft Phi-3)"""
+    """Level 2: Hugging Face API (With Retry Logic)"""
     if not HUGGINGFACE_API_KEY: return None
     headers = {"Authorization": f"Bearer {HUGGINGFACE_API_KEY}"}
     payload = {
@@ -222,7 +222,7 @@ def ask_huggingface(system_prompt, user_prompt):
     try:
         response = requests.post(HF_API_URL, headers=headers, json=payload)
         
-        # 👇 CHECK STATUS CODE (Handle 503/404/etc)
+        # Check Status Code
         if response.status_code != 200:
             if "estimated_time" in response.text:
                 logger.info(f"⏳ HF Loading... Waiting 10s")
@@ -243,7 +243,7 @@ def ask_huggingface(system_prompt, user_prompt):
         return None
 
 def ask_gemini(system_prompt, user_prompt):
-    """Level 3: Gemini API (With Retry Logic)"""
+    """Level 3: Gemini API (With Rate Limit Retry)"""
     if not gemini_model: return None
     try:
         full_prompt = f"{system_prompt}\n\nUSER INPUT: {user_prompt}"
@@ -251,7 +251,6 @@ def ask_gemini(system_prompt, user_prompt):
         text = response.text.replace("```json", "").replace("```", "").strip()
         return text
     except Exception as e:
-        # 👇 RATE LIMIT HANDLING
         if "429" in str(e):
             logger.warning("⚠️ GEMINI RATE LIMIT HIT. Cooling down 10s...")
             time.sleep(10)
