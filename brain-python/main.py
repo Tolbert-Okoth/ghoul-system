@@ -35,8 +35,8 @@ else:
 
 # 2. SETUP HUGGING FACE (Secondary Brain)
 HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
-# 👇 FIXED: Updated URL to new 'router' domain
-HF_API_URL = "https://router.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.3"
+# 👇 FIXED: Switched to Ungated Model (Zephyr) & New Router URL
+HF_API_URL = "https://router.huggingface.co/models/HuggingFaceH4/zephyr-7b-beta"
 
 # 3. SETUP GEMINI (Tertiary Brain)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -211,32 +211,43 @@ def ask_groq(system_prompt, user_prompt):
         return None
 
 def ask_huggingface(system_prompt, user_prompt):
-    """Level 2: Hugging Face API (With 'Model Loading' Fix)"""
+    """Level 2: Hugging Face API (Robust Error Handling)"""
     if not HUGGINGFACE_API_KEY: return None
     headers = {"Authorization": f"Bearer {HUGGINGFACE_API_KEY}"}
     payload = {
-        "inputs": f"<s>[INST] {system_prompt}\n\n{user_prompt} [/INST]",
+        "inputs": f"<|system|>\n{system_prompt}</s>\n<|user|>\n{user_prompt}</s>\n<|assistant|>",
         "parameters": {"max_new_tokens": 250, "return_full_text": False}
     }
     
     try:
         response = requests.post(HF_API_URL, headers=headers, json=payload)
-        data = response.json()
+        
+        # 👇 NEW: Check status code first
+        if response.status_code != 200:
+            logger.error(f"❌ HF STATUS {response.status_code}: {response.text}")
+            return None
 
-        # Handle API Error messages (like URL deprecated)
+        # 👇 NEW: Try/Except around JSON parsing
+        try:
+            data = response.json()
+        except ValueError:
+            logger.error(f"❌ HF INVALID JSON: {response.text[:200]}")
+            return None
+
+        # Handle Loading State
         if isinstance(data, dict) and 'error' in data:
-            # If it's a loading error, wait. If it's a hard error (like URL), fail.
             if 'estimated_time' in data:
                 wait_time = data['estimated_time']
                 logger.info(f"⏳ HF Model Loading... Waiting {wait_time}s")
                 time.sleep(wait_time) 
                 response = requests.post(HF_API_URL, headers=headers, json=payload)
-                data = response.json()
+                # Parse again carefully
+                try: data = response.json()
+                except: return None
             else:
                 logger.error(f"❌ HF Returned Error: {data}")
                 return None
 
-        # Check for success (List)
         if isinstance(data, list) and len(data) > 0 and 'generated_text' in data[0]:
             return data[0]['generated_text']
         
