@@ -26,7 +26,6 @@ const server = http.createServer(app);
 // ------------------------------------------
 // 🛡️ SECURITY & PROXY SETTINGS
 // ------------------------------------------
-// 👇 IMPROVEMENT 1: Lock down CORS to your frontend (or * for dev)
 const ALLOWED_ORIGINS = process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : '*';
 
 app.use(cors({
@@ -40,7 +39,7 @@ app.set('trust proxy', 1);
 
 const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, 
-    max: 200, // Increased slightly for dashboard polling
+    max: 200, 
     standardHeaders: true, 
     legacyHeaders: false,
     message: { error: "Too many requests, please try again later." }
@@ -62,7 +61,7 @@ app.use('/api/v1/intel', signalRoutes);
 // ------------------------------------------
 const pool = new Pool({ 
     connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false } // Required for Render Postgres
+    ssl: { rejectUnauthorized: false } 
 });
 
 const io = new Server(server, { 
@@ -149,7 +148,6 @@ async function processSignal(headline, symbol, currentPrice, isTechnicalCheck = 
                 return true;
             } catch (dbErr) {
                 console.error(`❌ DB INSERT FAILED: ${dbErr.message}`);
-                // Fallback emit
                 io.emit('new_signal', {
                     id: Date.now(), symbol, headline, verdict: safeVerdict, confidence: safeConf, reasoning: safeReason + " (Live Only)", timestamp: new Date()
                 });
@@ -175,7 +173,6 @@ async function runSmartScan() {
             const latestItem = feed.items[0]; 
 
             if (latestItem) {
-                // Determine if this is "new" news (simple check would be DB lookup, but skipping for speed)
                 console.log(`📰 NEWS DETECTED: "${latestItem.title}"`);
                 await processSignal(latestItem.title, sym, marketCache[sym] || 0, false);
                 await sleep(2000);
@@ -186,11 +183,12 @@ async function runSmartScan() {
         console.log(`📈 INITIATING TECHNICAL CHECK for ${sym}...`);
         await processSignal("Technical Market Check", sym, marketCache[sym] || 0, true);
         
-        await sleep(5000); // Wait 5s between assets
+        await sleep(5000); 
     }
 
-    console.log("\n✅ SCAN COMPLETE. Sleeping 5 minutes.");
-    setTimeout(runSmartScan, 300000);
+    console.log("\n✅ SCAN COMPLETE. Sleeping 30 minutes.");
+    // 👇 CHANGED: 30 minutes = 1,800,000 milliseconds
+    setTimeout(runSmartScan, 1800000);
 }
 
 // ------------------------------------------
@@ -201,15 +199,13 @@ app.get('/api/v1/history', async (req, res) => {
     const range = req.query.range || '1y'; 
     const ticker = ASSETS[symbol] ? ASSETS[symbol].yahooTicker : 'SPY';
     
-    // 👇 IMPROVEMENT 2: Real Data Fetching
     try {
         const endDate = new Date();
         const startDate = new Date();
         let interval = '1d';
 
-        // Calculate timeframe
         switch(range) {
-            case '1d': startDate.setDate(endDate.getDate() - 2); interval = '15m'; break; // 15m for intraday
+            case '1d': startDate.setDate(endDate.getDate() - 2); interval = '15m'; break;
             case '1mo': startDate.setMonth(endDate.getMonth() - 1); interval = '1d'; break;
             case '3mo': startDate.setMonth(endDate.getMonth() - 3); interval = '1d'; break;
             case '1y': startDate.setFullYear(endDate.getFullYear() - 1); interval = '1wk'; break;
@@ -223,13 +219,11 @@ app.get('/api/v1/history', async (req, res) => {
 
         if (!result || result.length === 0) throw new Error("No data returned");
 
-        // Format for Recharts
         const formattedData = result.map(quote => ({
             time: new Date(quote.date).getTime() / 1000,
             value: quote.close
-        })).filter(p => p.value !== null); // Filter out empty trading days
+        })).filter(p => p.value !== null); 
 
-        // Update Cache Price
         if (formattedData.length > 0) {
             marketCache[symbol] = formattedData[formattedData.length - 1].value;
         }
@@ -239,7 +233,6 @@ app.get('/api/v1/history', async (req, res) => {
     } catch (err) {
         console.error(`❌ Yahoo Data Error for ${symbol}:`, err.message);
         console.log("⚠️ Fallback to Simulation...");
-        // Fallback to simulation if Yahoo API fails/limits
         res.json(generateSimulationData(symbol, range));
     }
 });
@@ -265,7 +258,6 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, async () => { 
     console.log(`GHOUL_COMMAND_CENTER: LIVE (Port ${PORT})`);
     
-    // Auto-create table
     try {
         await pool.query(`CREATE TABLE IF NOT EXISTS trading_signals (id SERIAL PRIMARY KEY, symbol VARCHAR(10), headline TEXT, sentiment_score DECIMAL, confidence DECIMAL, verdict VARCHAR(20), status VARCHAR(20), reasoning TEXT, entry_price DECIMAL, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`);
         console.log("✅ DATABASE: Ready.");
