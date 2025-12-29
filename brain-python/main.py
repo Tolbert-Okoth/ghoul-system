@@ -50,7 +50,6 @@ gemini_model = setup_gemini()
 # Matching the variables used in Node.js
 ALPACA_KEY = os.getenv("APCA_API_KEY_ID") 
 ALPACA_SECRET = os.getenv("APCA_API_SECRET_KEY")
-ALPACA_BASE = "https://paper-api.alpaca.markets" if os.getenv("APCA_PAPER") == "true" else "https://api.alpaca.markets"
 # Data URL is different from Trading URL for v2
 ALPACA_DATA_URL = "https://data.alpaca.markets/v2/stocks/bars"
 
