@@ -307,3 +307,5 @@ server.listen(PORT, async () => {
     } catch (err) { console.error("DB Init Error:", err.message); }
     setTimeout(runSmartScan, 5000);
 });
+
+// Force update trigger: v2
