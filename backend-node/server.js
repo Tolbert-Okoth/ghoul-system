@@ -9,6 +9,9 @@ const rateLimit = require('express-rate-limit');
 const axios = require('axios'); 
 const Parser = require('rss-parser'); 
 
+// 🚨 VERSION CHECK: Look for this in your Render Logs to confirm update!
+console.log("🚀 GHOUL SERVER V2.1 (IEX FIX) STARTING...");
+
 // --- 🦙 ALPACA SETUP (Primary Data) ---
 const Alpaca = require('@alpacahq/alpaca-trade-api');
 const alpaca = new Alpaca({
@@ -222,7 +225,8 @@ app.get('/api/v1/history', async (req, res) => {
             end: endDate.toISOString(),
             timeframe: timeframe,
             limit: 1000,
-            adjustment: 'split'
+            adjustment: 'split',
+            feed: 'iex' // <--- 🚨 CRITICAL FIX: FORCES FREE DATA FEED
         });
 
         const formattedData = [];
@@ -238,7 +242,7 @@ app.get('/api/v1/history', async (req, res) => {
         return res.json(formattedData);
 
     } catch (alpacaErr) {
-        console.error(`❌ ALPACA FAILED (${alpacaErr.message}). Switching to YAHOO...`);
+        console.error(`❌ ALPACA FAILED (code: ${alpacaErr.code || 'N/A'}, message: ${alpacaErr.message}). Switching to YAHOO...`);
         
         // ATTEMPT 2: YAHOO (Backup)
         try {
@@ -307,5 +311,3 @@ server.listen(PORT, async () => {
     } catch (err) { console.error("DB Init Error:", err.message); }
     setTimeout(runSmartScan, 5000);
 });
-
-// Force update trigger: v2
