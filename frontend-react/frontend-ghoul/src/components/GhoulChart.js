@@ -3,6 +3,9 @@ import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianG
 import axios from 'axios';
 import io from 'socket.io-client';
 
+// ⚠️ Verify this matches your Render URL exactly (no trailing slash)
+const SERVER_URL = 'https://ghoul-system.onrender.com';
+
 const GhoulChart = ({ symbol }) => { 
     const [data, setData] = useState([]);
     const [currentPrice, setCurrentPrice] = useState(0);
@@ -23,7 +26,7 @@ const GhoulChart = ({ symbol }) => {
     useEffect(() => {
         const fetchData = async () => {
             try {
-                const res = await axios.get(`https://ghoul-system.onrender.com/api/v1/history?symbol=${symbol}&range=${range}`);
+                const res = await axios.get(`${SERVER_URL}/api/v1/history?symbol=${symbol}&range=${range}`);
                 const rawData = res.data;
 
                 if (rawData.length > 0 && rawData[0].isSimulated) {
@@ -40,14 +43,13 @@ const GhoulChart = ({ symbol }) => {
         };
 
         fetchData();
-        const socket = io('https://ghoul-system.onrender.com');
+        const socket = io(SERVER_URL);
         socket.on(`price_tick_${symbol}`, (tick) => setCurrentPrice(tick.price));
         return () => socket.close();
     }, [symbol, range]); 
 
     return (
-        // 👇 CHANGED: Reduced minHeight to 250px so it fits with the Signal Feed
-        <div className="panel chart-panel" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: '250px' }}>
+        <div className="panel chart-panel" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: '300px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
                 <div>
                     <div className="panel-header">PRICE_ACTION // {symbol}</div>
@@ -70,8 +72,8 @@ const GhoulChart = ({ symbol }) => {
                 </div>
             </div>
             
-            {/* 👇 CHANGED: Switched back to "100%" height so CSS controls the size */}
-            <div style={{ flex: 1, width: '100%', minHeight: '0' }}>
+            {/* 👇 KEY FIX: Added class 'ghoul-chart-container' for mobile CSS targeting */}
+            <div className="ghoul-chart-container" style={{ flex: 1, width: '100%', minHeight: '0' }}>
                 <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={data} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
                         <defs>

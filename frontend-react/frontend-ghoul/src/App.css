@@ -310,12 +310,13 @@ body {
     margin-bottom: 20px;
   }
 
-  /* 6. FORCE CHART VISIBILITY */
-  .chart-panel {
+  /* 6. FORCE CHART VISIBILITY (Updated Selector) */
+  .chart-panel, .ghoul-chart-container {
     display: block !important;
     height: 400px !important; /* Fixed height for mobile */
     min-height: 400px !important;
     margin-bottom: 20px;
+    width: 100% !important;
   }
 
   /* 7. FORCE SIGNAL FEED VISIBILITY */
