@@ -266,48 +266,48 @@ body {
     box-shadow: 0 0 10px rgba(0, 243, 255, 0.4);
 }
 
-/* --- MOBILE RESPONSIVENESS FIXES --- */
-
-/* --- CRITICAL MOBILE FIXES --- */
-
+/* --- 📱 MOBILE RESPONSIVENESS (THE CRITICAL FIX) --- */
 @media (max-width: 768px) {
-    /* 1. Unlock the main container height so you can scroll */
-    .app-container, .main-dashboard {
-        height: auto !important;
-        overflow-y: visible !important;
-        display: block !important; /* Disables the strict Grid/Flex lock */
-    }
+  
+  /* 1. Force Main Dashboard to Stack Vertically */
+  .main-dashboard {
+    display: flex; 
+    flex-direction: column;
+    height: auto; 
+    overflow-y: auto; 
+    padding-bottom: 60px; /* Space for scrolling */
+  }
 
-    /* 2. Fix the Columns */
-    .left-column, .right-column {
-        width: 100% !important;
-        height: auto !important;
-        display: block !important;
-        padding-bottom: 20px;
-    }
+  /* 2. Reset Widths so columns take full screen width */
+  .left-column, .right-column {
+    width: 100%;
+    min-width: 100%;
+    height: auto;
+    overflow: visible;
+    padding-bottom: 20px;
+  }
 
-    /* 3. FORCE THE CHART TO BE VISIBLE */
-    /* We set a specific pixel height because '100%' is 0 on mobile */
-    .ghoul-chart, .recharts-wrapper, .chart-container {
-        min-height: 400px !important; 
-        height: 400px !important;
-        width: 100% !important;
-        display: block !important;
-        margin-bottom: 20px;
-        background: rgba(0,0,0,0.2); /* Visual debug: faint bg to see if it exists */
-    }
+  /* 3. Force the Chart to have a fixed height (so it's visible) */
+  .chart-panel {
+    flex: none; /* Disable flex scaling */
+    height: 350px !important;
+    margin-bottom: 20px;
+  }
+  
+  /* 4. Force the Signal Feed to have a fixed height */
+  .feed-panel {
+    flex: none;
+    height: 450px !important;
+  }
 
-    /* 4. FORCE THE DATA STREAM TO BE VISIBLE */
-    .signal-feed, .feed-panel {
-        min-height: 400px !important;
-        height: auto !important;
-        overflow-y: visible !important;
-        border: 1px solid var(--neon-blue); /* Visual border to prove it's there */
-    }
-    
-    /* 5. Ensure the feed items don't get hidden */
-    .signal-card {
-        opacity: 1 !important;
-        visibility: visible !important;
-    }
+  /* 5. Adjust Header Font Size for Mobile */
+  .app-title {
+    font-size: 1.2rem;
+  }
+
+  /* 6. Ensure App Container Allows Scrolling */
+  .app-container {
+    height: auto;
+    overflow-y: auto;
+  }
 }
