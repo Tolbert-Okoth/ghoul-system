@@ -1,4 +1,5 @@
 # 💀 GHOUL SYSTEM: AI-Powered Market Intelligence
+<img width="1888" height="885" alt="Image" src="https://github.com/user-attachments/assets/4e3613b7-53a5-4309-b369-715ef86aee52" />
 
 
 **The Ghoul System** is an autonomous, full-stack market surveillance tool. It uses a dual-service architecture to scan financial news and technical data in real-time, feeding it into a Large Language Model (Groq AI) to generate trading signals with a "Cyberpunk" tactical dashboard.
