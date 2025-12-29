@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import io from 'socket.io-client';
 import SignalCard from './SignalCard'; 
 
+// ⚠️ Verify this URL matches your active Render dashboard URL exactly
 const SERVER_URL = 'https://ghoul-system.onrender.com';
 
 const SignalFeed = () => {
@@ -15,6 +16,7 @@ const SignalFeed = () => {
             setSignals((prev) => {
                 const exists = prev.find(s => s.id === data.id);
                 if (exists) return prev;
+                // Keep only the latest 50 signals
                 return [data, ...prev].slice(0, 50);
             });
         };
@@ -48,7 +50,6 @@ const SignalFeed = () => {
                             <SignalCard key={sig.id || i} data={sig} />
                         ))
                     ) : (
-                        // 🛑 CHANGED: Removed "//" entirely to prevent syntax errors
                         <div style={{ color: '#6b7280', fontSize: '12px', textAlign: 'center', marginTop: '20px', fontFamily: 'monospace' }}>
                             ESTABLISHING UPLINK...
                         </div>

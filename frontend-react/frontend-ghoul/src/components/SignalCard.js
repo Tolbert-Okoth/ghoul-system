@@ -5,16 +5,14 @@ const SignalCard = ({ data }) => {
   // 🛡️ Safety check
   if (!data) return null;
 
-  // 1. Destructure Data (Now includes 'entry_price')
+  // 1. Destructure Data
   const { 
     sentiment_score, 
     confidence, 
     headline, 
     reasoning, 
     timestamp, 
-    id, 
-    verdict,
-    entry_price 
+    id
   } = data;
 
   // 2. Logic for 3 States
@@ -49,7 +47,7 @@ const SignalCard = ({ data }) => {
     <div 
       className="card mb-2 border-0 text-white" 
       style={{
-        background: 'rgba(17, 24, 39, 0.7)', // Dark semi-transparent
+        background: 'rgba(17, 24, 39, 0.7)', 
         borderLeft: `4px solid ${theme.borderColor}`,
         borderRadius: '0 4px 4px 0',
         transition: 'all 0.2s ease',
@@ -83,13 +81,10 @@ const SignalCard = ({ data }) => {
           </p>
         </div>
 
-        {/* --- FOOTER (Added Entry Price) --- */}
+        {/* --- FOOTER (Edited: Removed Buy/Sell Price) --- */}
         <div className="d-flex justify-content-between mt-2 pt-1" style={{ fontSize: '9px', color: '#6b7280', fontFamily: 'monospace' }}>
           <span>{new Date(timestamp).toLocaleTimeString()}</span>
-          <span>
-             ID: {id} :: {verdict} 
-             {entry_price && ` @ $${Number(entry_price).toFixed(2)}`}
-          </span>
+          <span>ID: {id}</span> {/* 👈 Only ID is shown now */}
         </div>
 
       </div>
