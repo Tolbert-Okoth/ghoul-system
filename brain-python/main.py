@@ -84,7 +84,8 @@ def fetch_alpaca(symbol):
             "start": start_dt.strftime('%Y-%m-%d'),
             "end": end_dt.strftime('%Y-%m-%d'),
             "limit": 1000,
-            "adjustment": "split"
+            "adjustment": "split",
+            "feed": "iex"  # <--- 🚨 CRITICAL FIX: FORCE FREE DATA FEED
         }
 
         r = requests.get(ALPACA_DATA_URL, headers=headers, params=params, timeout=5)
