@@ -10,7 +10,7 @@ const axios = require('axios');
 const Parser = require('rss-parser'); 
 
 // 🚨 VERSION CHECK: Look for this in your Render Logs to confirm update!
-console.log("🚀 GHOUL SERVER V2.1 (IEX FIX) STARTING...");
+console.log("🚀 GHOUL SERVER V2.2 (AUTO-CLEANUP ENABLED) STARTING...");
 
 // --- 🦙 ALPACA SETUP (Primary Data) ---
 const Alpaca = require('@alpacahq/alpaca-trade-api');
@@ -22,7 +22,6 @@ const alpaca = new Alpaca({
 
 // --- 💜 YAHOO FINANCE SETUP (Backup Data) ---
 const yfModule = require('yahoo-finance2');
-// Handle different import styles for reliability
 const YahooFinanceClass = yfModule.YahooFinance || yfModule.default?.YahooFinance || yfModule.default;
 let yahooFinance;
 try { yahooFinance = new YahooFinanceClass(); } 
@@ -60,15 +59,6 @@ app.use('/api', limiter);
 app.use(express.json());
 
 // ------------------------------------------
-// 🚦 ROUTES & CONTROLLERS
-// ------------------------------------------
-app.get('/health', (req, res) => {
-    res.status(200).send('ALIVE');
-});
-
-app.use('/api/v1/intel', signalRoutes);
-
-// ------------------------------------------
 // ⚙️ BACKGROUND SYSTEM SETUP
 // ------------------------------------------
 const pool = new Pool({ 
@@ -96,6 +86,33 @@ const ASSETS = {
 
 let marketCache = {}; 
 let historyCache = {}; 
+
+// ------------------------------------------
+// 🚦 ROUTES & CONTROLLERS
+// ------------------------------------------
+app.get('/health', (req, res) => {
+    res.status(200).send('ALIVE');
+});
+
+// 🧨 NEW: RED BUTTON (Manual Database Wipe)
+// Usage: Visit https://your-url.com/api/admin/reset?key=ghoul
+app.get('/api/admin/reset', async (req, res) => {
+    if (req.query.key !== 'ghoul') return res.status(403).send('ACCESS DENIED');
+    try {
+        // "TRUNCATE ... RESTART IDENTITY" deletes data AND resets IDs back to 1
+        await pool.query('TRUNCATE TABLE trading_signals RESTART IDENTITY');
+        console.log('🧨 DATABASE WIPED BY ADMIN');
+        
+        // Notify all connected clients immediately
+        io.emit('history_dump', { signals: [] });
+        
+        res.send('DATABASE CLEARED SUCCESSFULLY. IDs RESET TO 1.');
+    } catch (error) {
+        res.status(500).send(error.message);
+    }
+});
+
+app.use('/api/v1/intel', signalRoutes);
 
 // ------------------------------------------
 // 🔌 WEBSOCKET CONNECTION
@@ -302,12 +319,35 @@ function generateSimulationData(symbol, range) {
     return data.reverse();
 }
 
+// ------------------------------------------
+// 🗑️ GARBAGE COLLECTOR (Auto-Purge)
+// ------------------------------------------
+const RETENTION_DAYS = 7; // Keep only 7 days of history on free tier
+async function runGarbageCollector() {
+    try {
+        const result = await pool.query(
+            `DELETE FROM trading_signals WHERE timestamp < NOW() - INTERVAL '${RETENTION_DAYS} days'`
+        );
+        if (result.rowCount > 0) {
+            console.log(`🧹 GARBAGE COLLECTOR: Purged ${result.rowCount} old signals.`);
+        }
+    } catch (error) {
+        console.error('❌ GC FAILED:', error.message);
+    }
+}
+// Run once every 24 hours
+setInterval(runGarbageCollector, 24 * 60 * 60 * 1000);
+
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, async () => { 
     console.log(`GHOUL_COMMAND_CENTER: LIVE (Port ${PORT})`);
     try {
         await pool.query(`CREATE TABLE IF NOT EXISTS trading_signals (id SERIAL PRIMARY KEY, symbol VARCHAR(10), headline TEXT, sentiment_score DECIMAL, confidence DECIMAL, verdict VARCHAR(20), status VARCHAR(20), reasoning TEXT, entry_price DECIMAL, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`);
         console.log("✅ DATABASE: Ready.");
+        
+        // Run Cleanup on Startup
+        await runGarbageCollector();
+
     } catch (err) { console.error("DB Init Error:", err.message); }
     setTimeout(runSmartScan, 5000);
 });
