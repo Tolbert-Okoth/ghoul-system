@@ -22,7 +22,9 @@ body {
   background-image: radial-gradient(circle at 50% 50%, rgba(0, 243, 255, 0.03) 0%, transparent 50%);
   color: #fff;
   font-family: var(--font-main);
-  overflow: hidden; /* Locks body */
+  
+  /* 🔒 LOCKS SCREEN ON DESKTOP (We unlock this for mobile below) */
+  overflow: hidden; 
 }
 
 /* --- LAYOUT GRID --- */
@@ -266,48 +268,64 @@ body {
     box-shadow: 0 0 10px rgba(0, 243, 255, 0.4);
 }
 
-/* --- 📱 MOBILE RESPONSIVENESS (THE CRITICAL FIX) --- */
+/* ========================================= */
+/* 📱 NUCLEAR MOBILE FIX (SCROLL & STACK)    */
+/* ========================================= */
 @media (max-width: 768px) {
   
-  /* 1. Force Main Dashboard to Stack Vertically */
+  /* 1. FORCE UNLOCK THE BODY SCROLL (CRITICAL) */
+  body, html {
+    overflow-y: auto !important;
+    height: auto !important;
+    overflow-x: hidden !important; /* Prevent side-scroll */
+  }
+
+  /* 2. Reset the Main Container */
+  .app-container {
+    height: auto !important;
+    min-height: 100vh;
+    display: block !important;
+    overflow: visible !important;
+  }
+
+  /* 3. Stack Left and Right Columns Vertically */
   .main-dashboard {
-    display: flex; 
-    flex-direction: column;
-    height: auto; 
-    overflow-y: auto; 
-    padding-bottom: 60px; /* Space for scrolling */
+    display: flex !important;
+    flex-direction: column !important;
+    height: auto !important;
+    overflow: visible !important;
   }
 
-  /* 2. Reset Widths so columns take full screen width */
+  /* 4. Reset Column Dimensions */
   .left-column, .right-column {
-    width: 100%;
-    min-width: 100%;
-    height: auto;
-    overflow: visible;
-    padding-bottom: 20px;
+    width: 100% !important;
+    height: auto !important;
+    min-width: 0 !important;
+    flex: none !important; /* Stop trying to flex grow/shrink */
+    overflow: visible !important;
   }
 
-  /* 3. Force the Chart to have a fixed height (so it's visible) */
-  .chart-panel {
-    flex: none; /* Disable flex scaling */
-    height: 350px !important;
+  /* 5. Force Spacing for Left Column */
+  .left-column {
     margin-bottom: 20px;
   }
-  
-  /* 4. Force the Signal Feed to have a fixed height */
+
+  /* 6. FORCE CHART VISIBILITY */
+  .chart-panel {
+    display: block !important;
+    height: 400px !important; /* Fixed height for mobile */
+    min-height: 400px !important;
+    margin-bottom: 20px;
+  }
+
+  /* 7. FORCE SIGNAL FEED VISIBILITY */
   .feed-panel {
-    flex: none;
-    height: 450px !important;
+    display: block !important;
+    height: 500px !important; /* Fixed height for mobile */
+    min-height: 500px !important;
   }
 
-  /* 5. Adjust Header Font Size for Mobile */
-  .app-title {
-    font-size: 1.2rem;
-  }
-
-  /* 6. Ensure App Container Allows Scrolling */
-  .app-container {
-    height: auto;
-    overflow-y: auto;
-  }
+  /* 8. Fix Font Sizes */
+  .app-title { font-size: 1.2rem; }
+  .status-bar { display: none; } /* Hide status bar on tiny screens if needed */
 }

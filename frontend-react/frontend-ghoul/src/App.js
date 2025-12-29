@@ -6,7 +6,6 @@ import NetDirectionPanel from './components/NetDirectionPanel';
 import GhoulChart from './components/GhoulChart';
 import SignalFeed from './components/SignalFeed';
 import WatchlistPanel from './components/WatchlistPanel';
-// 👇 NEW IMPORT: The Manual Component
 import SystemManual from './components/SystemManual';
 
 function App() {
