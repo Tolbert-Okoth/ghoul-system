@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import { SERVER_URL } from '../config';
 
 const OverallVerdictPanel = () => {
     const [data, setData] = useState(null);
@@ -7,7 +8,7 @@ const OverallVerdictPanel = () => {
     useEffect(() => {
         const fetchVerdict = async () => {
             try {
-                const response = await axios.get('https://ghoul-system.onrender.com/api/v1/intel/overall-verdict');
+                const response = await axios.get(`${SERVER_URL}/api/v1/intel/overall-verdict`);
                 setData(response.data);
             } catch (error) {
                 console.error("Error fetching verdict:", error);

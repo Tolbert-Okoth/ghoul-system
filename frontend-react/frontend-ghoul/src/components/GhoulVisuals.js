@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import { SERVER_URL } from '../config';
 
 const GhoulVisuals = ({ symbol }) => {
     const [sentiment, setSentiment] = useState("NEUTRAL");
@@ -14,13 +15,13 @@ const GhoulVisuals = ({ symbol }) => {
                 setError(null); // Clear errors on new attempt
                 
                 // 1. Get Verdict & Reasoning
-                const verdictRes = await axios.get(`https://ghoul-system.onrender.com/api/v1/intel/overall-verdict?symbol=${symbol}`);
+                const verdictRes = await axios.get(`${SERVER_URL}/api/v1/intel/overall-verdict?symbol=${encodeURIComponent(symbol)}`);
                 setSentiment(verdictRes.data.verdict || "NEUTRAL");
                 setReason(verdictRes.data.reason || "No clear signal detected.");
                 setConfidence(verdictRes.data.confidence || 0);
 
                 // 2. Get Hot Topics
-                const tagsRes = await axios.get('https://ghoul-system.onrender.com/api/v1/intel/hot-topics');
+                const tagsRes = await axios.get(`${SERVER_URL}/api/v1/intel/hot-topics`);
                 setTags(tagsRes.data.slice(0, 5)); 
             } catch (e) { 
                 console.error("GhoulVisuals Error:", e);
@@ -43,6 +44,9 @@ const GhoulVisuals = ({ symbol }) => {
     // Dynamic Color Logic
     const getGlowColor = () => {
         if (error) return "var(--neon-red)"; // Error State
+        if (sentiment === "BUY") return "var(--neon-green)";
+        if (sentiment === "SELL") return "var(--neon-red)";
+        if (sentiment === "WATCH" || sentiment === "HOLD") return "var(--neon-yellow)";
         if (sentiment.includes("STRONG") && sentiment.includes("BULL")) return "var(--neon-green)";
         if (sentiment.includes("WEAK") && sentiment.includes("BULL")) return "var(--neon-yellow)"; 
         if (sentiment.includes("BULL")) return "var(--neon-green)";
@@ -85,7 +89,7 @@ const GhoulVisuals = ({ symbol }) => {
             {/* AI TRUST INDICATOR */}
             <div style={{ marginBottom: '20px' }}>
                 <div className="flex-between">
-                    <span className="sub-label">CONFIDENCE_INTERVAL</span>
+                    <span className="sub-label">MODEL_CONFIDENCE&nbsp;</span>
                     <span style={{ color: confidence > 80 ? 'var(--neon-green)' : 'var(--neon-yellow)' }}>
                         {confidence}%
                     </span>

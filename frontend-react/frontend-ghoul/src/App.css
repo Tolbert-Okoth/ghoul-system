@@ -330,3 +330,13 @@ body {
   .app-title { font-size: 1.2rem; }
   .status-bar { display: none; } /* Hide status bar on tiny screens if needed */
 }
+/* --- 2026 refresh: legend, contrast and small-screen fixes --- */
+.range-selector { flex-wrap: wrap; }
+.range-btn { color: #9a9a9a; }
+.chart-legend { display: flex; gap: 18px; margin-top: 8px; font-family: var(--font-code); font-size: 0.65rem; letter-spacing: 1px; color: #9a9a9a; }
+.chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.chart-legend i { display: inline-block; width: 14px; height: 2px; }
+@media (max-width: 600px) {
+  .chart-panel > div:first-child { flex-wrap: wrap; gap: 8px; }
+  .range-btn { padding: 4px 6px; }
+}

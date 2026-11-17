@@ -11,3 +11,9 @@ backend-python/__pycache__/
 
 # --- Misc ---
 .DS_Store
+# --- Python caches and service secrets ---
+__pycache__/
+*.pyc
+brain-python/.env
+.env.*
+!.env.example

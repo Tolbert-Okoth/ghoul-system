@@ -9,7 +9,7 @@
 ## What it does
 
 - **Data with failover:** prices come from Alpaca (IEX feed), fall back to Yahoo Finance, and finally to a simulation mode flagged with `isSimulated`, so the dashboard keeps working when a provider fails.
-- **Analysis service (Python):** computes RSI, MACD and Bollinger Bands with pandas/TA-Lib and asks an LLM (Groq) to summarise news sentiment.
+- **Analysis service (Python):** computes RSI, MACD and Bollinger Bands with pandas and asks an LLM (Groq, with fallbacks) to score news sentiment.
 - **Orchestration (Node.js):** schedules scans, calls the Python service, saves signals to PostgreSQL and broadcasts updates over Socket.io.
 - **Retention job:** a scheduled cleanup deletes signals older than 7 days to stay within free-tier database limits.
 - **Dashboard (React):** live charts, a signal feed and real-time updates; responsive on mobile.
@@ -19,7 +19,7 @@
 ```
 frontend-react  <--Socket.io/REST-->  backend-node  --HTTP-->  brain-python
   (React,                             (Express,                (Flask, pandas,
-   Recharts)                           PostgreSQL)              TA-Lib, Groq)
+   Recharts)                           PostgreSQL)              Groq)
 ```
 
 ## Tech stack
@@ -28,12 +28,12 @@ frontend-react  <--Socket.io/REST-->  backend-node  --HTTP-->  brain-python
 |---|---|
 | Frontend | React (Create React App), Recharts, Socket.io client |
 | Backend | Node.js, Express, Socket.io, PostgreSQL (`pg`), RSS parser |
-| Analysis service | Python, Flask, pandas, TA-Lib, yfinance, Groq API |
+| Analysis service | Python, Flask, pandas, yfinance, Groq API |
 | Data providers | Alpaca (primary), Yahoo Finance (backup) |
 
 ## Run locally
 
-Requirements: Node.js 18+, Python 3.10+, PostgreSQL, and TA-Lib's C library (needed by the Python package).
+Requirements: Node.js 18+, Python 3.10+ and PostgreSQL.
 
 ```bash
 git clone https://github.com/Tolbert-Okoth/ghoul-system.git
@@ -57,32 +57,26 @@ npm start
 
 ### Environment variables
 
-**backend-node/.env**
-```env
-DATABASE_URL=postgres://user:password@host:5432/ghoul
-PYTHON_MICROSERVICE_URL=http://localhost:5000
-APCA_API_KEY_ID=your_alpaca_key
-APCA_API_SECRET_KEY=your_alpaca_secret
-FRONTEND_URL=http://localhost:3000
-PORT=4000
-```
+Copy each `.env.example` to `.env` and fill it in:
 
-**brain-python/.env**
-```env
-GROQ_API_KEY=your_groq_key
-APCA_API_KEY_ID=your_alpaca_key
-APCA_API_SECRET_KEY=your_alpaca_secret
-FINNHUB_API_KEY=optional
-GEMINI_API_KEY=optional
-```
+- `backend-node/.env.example`: database, data providers, the shared secret for the analysis service, and the optional admin key
+- `brain-python/.env.example`: LLM and data keys, plus the same shared secret
+- `frontend-react/frontend-ghoul/.env.example`: `REACT_APP_API_URL` for local development
 
 The backend creates its `trading_signals` table on startup.
 
+## Security
+
+- **Admin reset** is disabled unless `ADMIN_RESET_KEY` is set (16+ characters). It only accepts `POST` with the key in an `X-Admin-Key` header, compared in constant time.
+- **Analysis service** rejects requests without the shared `X-Brain-Key` when `BRAIN_SHARED_SECRET` is set, so the public URL can't be used to spend the LLM quota. It validates symbols, modes and headline length.
+- **Chart API** only serves the tracked watchlist and known ranges, which keeps the cache bounded.
+- Helmet headers, CORS restricted to `FRONTEND_URL`, and rate limiting on `/api`.
+
 ## Known limitations
 
-- The admin reset route is protected only by a hard-coded query key; it needs proper authentication before any public deployment.
 - LLM confidence scores are model output, not calibrated probabilities.
 - The simulation fallback produces synthetic prices (returned with `isSimulated: true`); they should never be read as market data.
+- Headlines are sent to third-party LLM providers.
 
 ## Author
 

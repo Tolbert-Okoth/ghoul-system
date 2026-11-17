@@ -2,7 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const { Pool } = require('pg');
+const crypto = require('crypto');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
@@ -13,12 +13,25 @@ const Parser = require('rss-parser');
 console.log("🚀 GHOUL SERVER V2.2 (AUTO-CLEANUP ENABLED) STARTING...");
 
 // --- 🦙 ALPACA SETUP (Primary Data) ---
-const Alpaca = require('@alpacahq/alpaca-trade-api');
-const alpaca = new Alpaca({
-  keyId: process.env.APCA_API_KEY_ID,
-  secretKey: process.env.APCA_API_SECRET_KEY,
-  paper: true,
-});
+// Direct REST call to Alpaca's market-data API (free IEX feed); no SDK needed.
+async function fetchAlpacaBars(symbol, { start, end, timeframe }) {
+  if (!process.env.APCA_API_KEY_ID || !process.env.APCA_API_SECRET_KEY) throw new Error('Alpaca keys not set');
+  const bars = [];
+  let pageToken;
+  do {
+    const { data } = await axios.get(`https://data.alpaca.markets/v2/stocks/${encodeURIComponent(symbol)}/bars`, {
+      headers: {
+        'APCA-API-KEY-ID': process.env.APCA_API_KEY_ID,
+        'APCA-API-SECRET-KEY': process.env.APCA_API_SECRET_KEY,
+      },
+      params: { start, end, timeframe, limit: 1000, adjustment: 'split', feed: 'iex', page_token: pageToken },
+      timeout: 10000,
+    });
+    bars.push(...(data.bars || []));
+    pageToken = data.next_page_token;
+  } while (pageToken && bars.length < 5000);
+  return bars;
+}
 
 // --- 💜 YAHOO FINANCE SETUP (Backup Data) ---
 const yfModule = require('yahoo-finance2');
@@ -29,7 +42,7 @@ catch (e) { yahooFinance = yfModule.default || yfModule; }
 if (yahooFinance && yahooFinance.suppressNotices) yahooFinance.suppressNotices(['yahooSurvey', 'cookie']);
 
 // --- IMPORTS FOR ROUTING ---
-const signalRoutes = require('./routes/signalRoutes'); 
+const createSignalRoutes = require('./routes/signalRoutes');
 
 const app = express();
 const server = http.createServer(app);
@@ -56,15 +69,12 @@ const limiter = rateLimit({
     message: { error: "Too many requests, please try again later." }
 });
 app.use('/api', limiter);
-app.use(express.json());
+app.use(express.json({ limit: '50kb' }));
 
 // ------------------------------------------
 // ⚙️ BACKGROUND SYSTEM SETUP
 // ------------------------------------------
-const pool = new Pool({ 
-    connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false } 
-});
+const pool = require('./config/db');
 
 const io = new Server(server, { 
     cors: { origin: ALLOWED_ORIGINS, methods: ["GET", "POST"] }
@@ -84,6 +94,7 @@ const ASSETS = {
     'AMD':  { rss: 'https://finance.yahoo.com/rss/headline?s=AMD',  yahooTicker: 'AMD', defaultPrice: 155.00 }
 };
 
+const VALID_RANGES = ['1d', '1mo', '3mo', '1y', 'ytd'];
 let marketCache = {}; 
 let historyCache = {}; 
 
@@ -94,25 +105,32 @@ app.get('/health', (req, res) => {
     res.status(200).send('ALIVE');
 });
 
-// 🧨 NEW: RED BUTTON (Manual Database Wipe)
-// Usage: Visit https://your-url.com/api/admin/reset?key=ghoul
-app.get('/api/admin/reset', async (req, res) => {
-    if (req.query.key !== 'ghoul') return res.status(403).send('ACCESS DENIED');
+// ADMIN: wipe stored signals.
+// Disabled unless ADMIN_RESET_KEY is set. Call with:
+//   curl -X POST -H "X-Admin-Key: $ADMIN_RESET_KEY" https://<host>/api/admin/reset
+function isAdminKeyValid(provided) {
+    const expected = process.env.ADMIN_RESET_KEY;
+    if (!expected || expected.length < 16 || typeof provided !== 'string') return false;
+    const a = Buffer.from(provided);
+    const b = Buffer.from(expected);
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+app.post('/api/admin/reset', async (req, res) => {
+    if (!process.env.ADMIN_RESET_KEY) return res.status(404).json({ error: 'Not found' });
+    if (!isAdminKeyValid(req.get('X-Admin-Key'))) return res.status(403).json({ error: 'Forbidden' });
     try {
-        // "TRUNCATE ... RESTART IDENTITY" deletes data AND resets IDs back to 1
         await pool.query('TRUNCATE TABLE trading_signals RESTART IDENTITY');
-        console.log('🧨 DATABASE WIPED BY ADMIN');
-        
-        // Notify all connected clients immediately
+        console.log('Admin reset: trading_signals cleared');
         io.emit('history_dump', { signals: [] });
-        
-        res.send('DATABASE CLEARED SUCCESSFULLY. IDs RESET TO 1.');
+        res.json({ message: 'Signals cleared.' });
     } catch (error) {
-        res.status(500).send(error.message);
+        console.error('Admin reset failed:', error.message);
+        res.status(500).json({ error: 'Reset failed' });
     }
 });
 
-app.use('/api/v1/intel', signalRoutes);
+app.use('/api/v1/intel', createSignalRoutes(Object.keys(ASSETS)));
 
 // ------------------------------------------
 // 🔌 WEBSOCKET CONNECTION
@@ -140,9 +158,10 @@ async function processSignal(headline, symbol, currentPrice, isTechnicalCheck = 
             ? `${process.env.PYTHON_MICROSERVICE_URL}/analyze` 
             : 'http://127.0.0.1:5000/analyze';
         
+        const brainHeaders = process.env.BRAIN_SHARED_SECRET ? { 'X-Brain-Key': process.env.BRAIN_SHARED_SECRET } : {};
         const brainResponse = await axios.post(brainURL, { 
             headline: headline, symbol: symbol, mode: isTechnicalCheck ? 'technical_only' : 'standard' 
-        });
+        }, { headers: brainHeaders, timeout: 45000 });
         
         if (!brainResponse.data) return false;
 
@@ -211,9 +230,13 @@ async function runSmartScan() {
 // 📈 CHART DATA (MULTI-TIERED FETCH)
 // ------------------------------------------
 app.get('/api/v1/history', async (req, res) => {
-    const symbol = req.query.symbol || 'SPY';
-    const range = req.query.range || '1y'; 
-    const ticker = ASSETS[symbol] ? ASSETS[symbol].yahooTicker : 'SPY';
+    const symbol = String(req.query.symbol || 'SPY').toUpperCase();
+    const range = String(req.query.range || '1y');
+    // Only serve the tracked watchlist and known ranges: keeps the cache bounded
+    // and stops arbitrary input reaching the data providers.
+    if (!ASSETS[symbol]) return res.status(400).json({ error: 'Unknown symbol' });
+    if (!VALID_RANGES.includes(range)) return res.status(400).json({ error: 'Unknown range' });
+    const ticker = ASSETS[symbol].yahooTicker;
     const cacheKey = `${symbol}_${range}`;
     const now = Date.now();
 
@@ -233,23 +256,19 @@ app.get('/api/v1/history', async (req, res) => {
         switch(range) {
             case '1d': startDate.setDate(endDate.getDate() - 2); timeframe = '15Min'; break;
             case '1mo': startDate.setMonth(endDate.getMonth() - 1); break;
+            case '3mo': startDate.setMonth(endDate.getMonth() - 3); break;
+            case 'ytd': startDate.setMonth(0, 1); break;
             case '1y': startDate.setFullYear(endDate.getFullYear() - 1); break;
             default: startDate.setFullYear(endDate.getFullYear() - 1);
         }
 
-        const bars = alpaca.getBarsV2(symbol, {
+        const bars = await fetchAlpacaBars(symbol, {
             start: startDate.toISOString(),
             end: endDate.toISOString(),
-            timeframe: timeframe,
-            limit: 1000,
-            adjustment: 'split',
-            feed: 'iex' // <--- 🚨 CRITICAL FIX: FORCES FREE DATA FEED
+            timeframe,
         });
 
-        const formattedData = [];
-        for await (const bar of bars) {
-            formattedData.push({ time: new Date(bar.Timestamp).getTime() / 1000, value: bar.ClosePrice });
-        }
+        const formattedData = bars.map(bar => ({ time: new Date(bar.t).getTime() / 1000, value: bar.c }));
 
         if (formattedData.length === 0) throw new Error("No data from Alpaca");
         
@@ -270,6 +289,8 @@ app.get('/api/v1/history', async (req, res) => {
             switch(range) {
                 case '1d': startDate.setDate(endDate.getDate() - 2); interval = '15m'; break;
                 case '1mo': startDate.setMonth(endDate.getMonth() - 1); break;
+                case '3mo': startDate.setMonth(endDate.getMonth() - 3); break;
+                case 'ytd': startDate.setMonth(0, 1); break;
                 case '1y': startDate.setFullYear(endDate.getFullYear() - 1); interval = '1wk'; break;
                 default: startDate.setFullYear(endDate.getFullYear() - 1);
             }
@@ -326,7 +347,8 @@ const RETENTION_DAYS = 7; // Keep only 7 days of history on free tier
 async function runGarbageCollector() {
     try {
         const result = await pool.query(
-            `DELETE FROM trading_signals WHERE timestamp < NOW() - INTERVAL '${RETENTION_DAYS} days'`
+            "DELETE FROM trading_signals WHERE timestamp < NOW() - make_interval(days => $1)",
+            [RETENTION_DAYS]
         );
         if (result.rowCount > 0) {
             console.log(`🧹 GARBAGE COLLECTOR: Purged ${result.rowCount} old signals.`);

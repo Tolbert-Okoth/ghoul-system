@@ -7,7 +7,7 @@ import requests
 from pathlib import Path
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify
-from flask_cors import CORS
+import hmac
 from groq import Groq 
 import google.generativeai as genai
 import yfinance as yf
@@ -24,7 +24,13 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-CORS(app)
+# No CORS: only the Node backend calls this service, server-to-server.
+
+# Optional shared secret. When set, /analyze requires a matching X-Brain-Key header,
+# so strangers can't spend the LLM quota by calling the public URL directly.
+BRAIN_SHARED_SECRET = os.getenv("BRAIN_SHARED_SECRET")
+SYMBOL_RE = re.compile(r"^[A-Z][A-Z0-9.\-=]{0,9}$")
+MAX_HEADLINE_CHARS = 500
 
 # 1. SETUP GROQ (Primary Brain)
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -42,7 +48,7 @@ def setup_gemini():
         available_names = [m.name for m in all_models if 'generateContent' in m.supported_generation_methods]
         chosen = next((n for n in available_names if 'flash' in n.lower()), available_names[0])
         return genai.GenerativeModel(chosen)
-    except: return None
+    except Exception: return None
 
 gemini_model = setup_gemini()
 
@@ -116,7 +122,7 @@ def fetch_yahoo(symbol):
         df = yf.download(t, period="6mo", interval="1d", progress=False)
         if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
         return df if not df.empty else None
-    except: return None
+    except Exception: return None
 
 def fetch_finnhub(symbol):
     """Spare Tire: Finnhub"""
@@ -125,12 +131,12 @@ def fetch_finnhub(symbol):
         t = symbol.replace("=F", "").replace("-USD", "")
         end = int(time.time())
         start = end - (120 * 86400)
-        url = f"https://finnhub.io/api/v1/stock/candle?symbol={t}&resolution=D&from={start}&to={end}&token={FINNHUB_API_KEY}"
-        r = requests.get(url, timeout=5)
+        r = requests.get("https://finnhub.io/api/v1/stock/candle", timeout=5,
+                         params={"symbol": t, "resolution": "D", "from": start, "to": end, "token": FINNHUB_API_KEY})
         js = r.json()
         if js.get('s') == 'ok': return pd.DataFrame({'Close': js['c']})
         return None
-    except: return None
+    except Exception: return None
 
 def calculate_indicators(df):
     if df is None or df.empty or len(df) < 20: return None
@@ -171,7 +177,7 @@ def calculate_indicators(df):
         if close < lower_v: bb_status = "OVERSOLD (LOWER)"
 
         return { "rsi": round(curr_rsi, 2), "macd_trend": macd_trend, "bb_status": bb_status, "price": round(close, 2) }
-    except: return None
+    except Exception: return None
 
 def get_technicals(symbol):
     global TECHNICAL_CACHE
@@ -205,7 +211,7 @@ def clean_json(text):
         clean = re.sub(r'```json\s*|\s*```', '', text)
         match = re.search(r'\{.*\}', clean, re.DOTALL)
         return json.loads(match.group(0)) if match else None
-    except: return None
+    except Exception: return None
 
 def ask_groq(sys, user):
     if not groq_client: return None
@@ -226,14 +232,14 @@ def ask_pollinations(sys, user):
             "model": "openai", "jsonMode": True
         }, timeout=20)
         return r.text if r.status_code == 200 else None
-    except: return None
+    except Exception: return None
 
 def ask_gemini(sys, user):
     """Level 3: Gemini Backup"""
     if not gemini_model: return None
     try:
         return gemini_model.generate_content(f"{sys}\n\nUSER: {user}").text
-    except: return None
+    except Exception: return None
 
 def emergency_keyword_analysis(headline):
     """Level 4: Dumb Keywords"""
@@ -253,10 +259,21 @@ def emergency_keyword_analysis(headline):
 
 @app.route('/analyze', methods=['POST'])
 def analyze():
-    d = request.json
-    headline = d.get('headline', '')
-    symbol = d.get('symbol', 'SPY')
+    if BRAIN_SHARED_SECRET:
+        provided = request.headers.get('X-Brain-Key', '')
+        if not hmac.compare_digest(provided.encode(), BRAIN_SHARED_SECRET.encode()):
+            return jsonify({"error": "Forbidden"}), 403
+
+    d = request.get_json(silent=True)
+    if not isinstance(d, dict):
+        return jsonify({"error": "Expected a JSON body"}), 400
+    headline = str(d.get('headline', ''))[:MAX_HEADLINE_CHARS]
+    symbol = str(d.get('symbol', 'SPY')).upper()
     mode = d.get('mode', 'standard')
+    if not SYMBOL_RE.match(symbol):
+        return jsonify({"error": "Invalid symbol"}), 400
+    if mode not in ('standard', 'technical_only'):
+        return jsonify({"error": "Invalid mode"}), 400
 
     print(f"🧠 ANALYZING [{mode.upper()}]: {symbol}")
     tech = get_technicals(symbol)

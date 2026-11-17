@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import io from 'socket.io-client';
 import SignalCard from './SignalCard'; 
+import { SERVER_URL } from '../config';
 
 // ⚠️ Verify this URL matches your active Render dashboard URL exactly
-const SERVER_URL = 'https://ghoul-system.onrender.com';
+
 
 const SignalFeed = () => {
     const [signals, setSignals] = useState([]);

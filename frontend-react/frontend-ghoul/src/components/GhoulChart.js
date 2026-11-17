@@ -2,9 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Line } from 'recharts';
 import axios from 'axios';
 import io from 'socket.io-client';
+import { SERVER_URL } from '../config';
 
 // ⚠️ Verify this matches your Render URL exactly (no trailing slash)
-const SERVER_URL = 'https://ghoul-system.onrender.com';
+
 
 const GhoulChart = ({ symbol }) => { 
     const [data, setData] = useState([]);
@@ -26,7 +27,7 @@ const GhoulChart = ({ symbol }) => {
     useEffect(() => {
         const fetchData = async () => {
             try {
-                const res = await axios.get(`${SERVER_URL}/api/v1/history?symbol=${symbol}&range=${range}`);
+                const res = await axios.get(`${SERVER_URL}/api/v1/history?symbol=${encodeURIComponent(symbol)}&range=${range}`);
                 const rawData = res.data;
 
                 if (rawData.length > 0 && rawData[0].isSimulated) {
@@ -85,11 +86,19 @@ const GhoulChart = ({ symbol }) => {
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
                         <XAxis dataKey="time" hide={true} />
                         <YAxis domain={['auto', 'auto']} hide={true} padding={{ top: 20, bottom: 20 }} />
-                        <Tooltip contentStyle={{ backgroundColor: '#000', border: '1px solid #333', color: '#fff' }} />
+                        <Tooltip
+                            contentStyle={{ backgroundColor: '#000', border: '1px solid #333', color: '#fff' }}
+                            labelFormatter={(t) => new Date(t * 1000).toLocaleString(undefined, range === '1d' ? { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' })}
+                            formatter={(v, name) => [`$${Number(v).toFixed(2)}`, name === 'sma' ? 'SMA' : 'PRICE']}
+                        />
                         <Line type="monotone" dataKey="sma" stroke="#ff9900" strokeWidth={2} dot={false} isAnimationActive={false} />
                         <Area type="monotone" dataKey="value" stroke={isSimulated ? "#ff4444" : "#00f3ff"} strokeWidth={3} fill="url(#colorPrice)" isAnimationActive={false} />
                     </AreaChart>
                 </ResponsiveContainer>
+            </div>
+            <div className="chart-legend">
+                <span><i style={{ background: isSimulated ? '#ff4444' : '#00f3ff' }} />PRICE</span>
+                <span><i style={{ background: '#ff9900' }} />MOVING AVG ({data.length > 50 ? 20 : 5})</span>
             </div>
         </div>
     );

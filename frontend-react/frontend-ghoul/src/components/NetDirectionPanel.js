@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import { SERVER_URL } from '../config';
 
 const NetDirectionPanel = ({ symbol }) => { // Receives Symbol
     const [score, setScore] = useState(0);
@@ -8,7 +9,7 @@ const NetDirectionPanel = ({ symbol }) => { // Receives Symbol
     useEffect(() => {
         const fetchVerdict = async () => {
             try {
-                const res = await axios.get(`https://ghoul-system.onrender.com/api/v1/intel/overall-verdict?symbol=${symbol}`);
+                const res = await axios.get(`${SERVER_URL}/api/v1/intel/overall-verdict?symbol=${encodeURIComponent(symbol)}`);
                 setScore(res.data.score || 0);
                 setStatus(res.data.verdict || "NEUTRAL");
             } catch (e) { console.error(e); }

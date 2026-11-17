@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import { SERVER_URL } from '../config';
 
 const SmaDeviationPanel = ({ symbol }) => {
     const [deviation, setDeviation] = useState(0);
@@ -10,7 +11,7 @@ const SmaDeviationPanel = ({ symbol }) => {
         const fetchSMA = async () => {
             try {
                 // Fetch history for the specific symbol
-                const res = await axios.get(`https://ghoul-system.onrender.com/api/v1/history?symbol=${symbol}`);
+                const res = await axios.get(`${SERVER_URL}/api/v1/history?symbol=${encodeURIComponent(symbol)}`);
                 const data = res.data;
 
                 if (data.length < 20) {
