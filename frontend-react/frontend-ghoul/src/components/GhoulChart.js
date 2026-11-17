@@ -53,11 +53,11 @@ const GhoulChart = ({ symbol }) => {
         <div className="panel chart-panel" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: '300px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
                 <div>
-                    <div className="panel-header">PRICE_ACTION // {symbol}</div>
+                    <div className="panel-header">PRICE · <b>{symbol}</b></div>
                     <div className="price-display">
                         ${currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                         {isSimulated ? (
-                            <span className="live-indicator" style={{ color: '#ff4444', marginLeft: '10px' }}>⚠️ SIMULATED</span>
+                            <span className="live-indicator" style={{ color: 'var(--down)', marginLeft: '10px' }}>SIMULATED DATA</span>
                         ) : (
                             <span className="live-indicator"><span className="live-dot">●</span> LIVE</span>
                         )}
@@ -79,26 +79,26 @@ const GhoulChart = ({ symbol }) => {
                     <AreaChart data={data} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
                         <defs>
                             <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor={isSimulated ? "#ff4444" : "#00f3ff"} stopOpacity={0.3}/>
-                                <stop offset="95%" stopColor={isSimulated ? "#ff4444" : "#00f3ff"} stopOpacity={0}/>
+                                <stop offset="5%" stopColor={isSimulated ? "#ff5c4d" : "#ffb000"} stopOpacity={0.22}/>
+                                <stop offset="95%" stopColor={isSimulated ? "#ff5c4d" : "#ffb000"} stopOpacity={0}/>
                             </linearGradient>
                         </defs>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1d1a14" />
                         <XAxis dataKey="time" hide={true} />
                         <YAxis domain={['auto', 'auto']} hide={true} padding={{ top: 20, bottom: 20 }} />
                         <Tooltip
-                            contentStyle={{ backgroundColor: '#000', border: '1px solid #333', color: '#fff' }}
+                            contentStyle={{ backgroundColor: '#0b0a08', border: '1px solid #2a251d', color: '#ece3cf', fontFamily: 'JetBrains Mono', fontSize: 12, borderRadius: 2 }}
                             labelFormatter={(t) => new Date(t * 1000).toLocaleString(undefined, range === '1d' ? { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' })}
                             formatter={(v, name) => [`$${Number(v).toFixed(2)}`, name === 'sma' ? 'SMA' : 'PRICE']}
                         />
-                        <Line type="monotone" dataKey="sma" stroke="#ff9900" strokeWidth={2} dot={false} isAnimationActive={false} />
-                        <Area type="monotone" dataKey="value" stroke={isSimulated ? "#ff4444" : "#00f3ff"} strokeWidth={3} fill="url(#colorPrice)" isAnimationActive={false} />
+                        <Line type="monotone" dataKey="sma" stroke="#8b8170" strokeWidth={1.5} strokeDasharray="4 4" dot={false} isAnimationActive={false} />
+                        <Area type="monotone" dataKey="value" stroke={isSimulated ? "#ff5c4d" : "#ffb000"} strokeWidth={2} fill="url(#colorPrice)" isAnimationActive={false} />
                     </AreaChart>
                 </ResponsiveContainer>
             </div>
             <div className="chart-legend">
-                <span><i style={{ background: isSimulated ? '#ff4444' : '#00f3ff' }} />PRICE</span>
-                <span><i style={{ background: '#ff9900' }} />MOVING AVG ({data.length > 50 ? 20 : 5})</span>
+                <span><i style={{ background: isSimulated ? '#ff5c4d' : '#ffb000' }} />PRICE</span>
+                <span><i style={{ background: '#8b8170' }} />MOVING AVG ({data.length > 50 ? 20 : 5})</span>
             </div>
         </div>
     );

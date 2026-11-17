@@ -7,6 +7,7 @@ import GhoulChart from './components/GhoulChart';
 import SignalFeed from './components/SignalFeed';
 import WatchlistPanel from './components/WatchlistPanel';
 import SystemManual from './components/SystemManual';
+import TickerTape from './components/TickerTape';
 
 function App() {
   const [activeSymbol, setActiveSymbol] = useState('SPY'); 
@@ -30,23 +31,25 @@ function App() {
 
       {/* Header Section */}
       <header className="app-header">
-        <div style={{ display: 'flex', alignItems: 'center' }}>
-            <h1 className="app-title">GHOUL_COMMAND <span className="highlight">{"// " + activeSymbol}</span></h1>
+        <div className="brand">
+            <h1 className="app-title">Ghoul <span className="highlight">{activeSymbol}</span></h1>
+            <span className="brand-sub">Night desk · news × technicals</span>
             {/* 👇 NEW HELP BUTTON */}
-            <button className="help-btn" onClick={() => setShowManual(true)}>? HELP_MANUAL</button>
+            <button className="help-btn" onClick={() => setShowManual(true)}>? MANUAL</button>
         </div>
 
         <div className="status-bar">
           <div className="status-item">
-            <span className="status-label">SYSTEM_STATUS</span>
+            <span className="status-label">FEED</span>
             <span className="status-val status-online">ONLINE</span>
           </div>
           <div className="status-item">
             <span className="status-label">MODE</span>
-            <span className="status-val">SENTIMENT_TRACKING</span>
+            <span className="status-val">SENTIMENT + TA</span>
           </div>
         </div>
       </header>
+      <TickerTape />
 
       {/* Main Grid Layout */}
       <div className="main-dashboard">

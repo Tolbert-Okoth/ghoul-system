@@ -51,22 +51,22 @@ const GhoulVisuals = ({ symbol }) => {
         if (sentiment.includes("WEAK") && sentiment.includes("BULL")) return "var(--neon-yellow)"; 
         if (sentiment.includes("BULL")) return "var(--neon-green)";
         if (sentiment.includes("STRONG") && sentiment.includes("BEAR")) return "var(--neon-red)";
-        if (sentiment.includes("WEAK") && sentiment.includes("BEAR")) return "#ff8800"; 
+        if (sentiment.includes("WEAK") && sentiment.includes("BEAR")) return "var(--down)"; 
         if (sentiment.includes("BEAR")) return "var(--neon-red)";
-        return "#888";
+        return "var(--dim)";
     };
 
     return (
         <div className="panel visuals-panel">
-            <div className="panel-header">NARRATIVE_CLUSTERS // {symbol}</div>
+            <div className="panel-header">AI READ · <b>{symbol}</b></div>
 
             {/* AI CONSENSUS */}
             <div style={{ marginBottom: '15px' }}>
-                <div className="sub-label">AI_CONSENSUS</div>
+                <div className="sub-label">CALL</div>
                 <div className="neon-text" style={{ 
                     color: getGlowColor(), 
-                    fontSize: '1.4rem', 
-                    textShadow: `0 0 15px ${getGlowColor()}`,
+                    fontSize: '2.2rem', lineHeight: 1, 
+
                     letterSpacing: '1px'
                 }}>
                     {error ? "SYSTEM_FAILURE" : sentiment}
@@ -74,12 +74,12 @@ const GhoulVisuals = ({ symbol }) => {
             </div>
 
             {/* THE REASONING ENGINE */}
-            <div style={{ marginBottom: '20px', padding: '10px', background: 'rgba(255,255,255,0.03)', borderLeft: `2px solid ${getGlowColor()}` }}>
-                <div className="sub-label" style={{ marginBottom: '5px' }}>STRATEGIC_RATIONALE</div>
+            <div style={{ marginBottom: '20px', padding: '10px', background: 'transparent', borderLeft: `2px solid ${getGlowColor()}` }}>
+                <div className="sub-label" style={{ marginBottom: '5px' }}>WHY</div>
                 <div style={{ 
                     fontFamily: 'var(--font-code)', 
                     fontSize: '0.8rem', 
-                    color: error ? '#ff4444' : '#ddd', 
+                    color: error ? 'var(--down)' : 'var(--paper)', 
                     lineHeight: '1.4' 
                 }}>
                     "{reason}"
@@ -89,7 +89,7 @@ const GhoulVisuals = ({ symbol }) => {
             {/* AI TRUST INDICATOR */}
             <div style={{ marginBottom: '20px' }}>
                 <div className="flex-between">
-                    <span className="sub-label">MODEL_CONFIDENCE&nbsp;</span>
+                    <span className="sub-label">CONFIDENCE&nbsp;</span>
                     <span style={{ color: confidence > 80 ? 'var(--neon-green)' : 'var(--neon-yellow)' }}>
                         {confidence}%
                     </span>

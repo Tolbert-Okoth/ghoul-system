@@ -34,7 +34,7 @@ const NetDirectionPanel = ({ symbol }) => { // Receives Symbol
 
     return (
         <div className="panel direction-panel">
-            <div className="panel-header" style={{ marginBottom: 0 }}>NET_DIRECTION // {symbol}</div>
+            <div className="panel-header" style={{ marginBottom: 0 }}>NET DIRECTION · <b>{symbol}</b></div>
             
             <div className="slider-wrapper">
                 <div className="slider-labels">
@@ -55,7 +55,7 @@ const NetDirectionPanel = ({ symbol }) => { // Receives Symbol
             <div style={{ textAlign: 'center' }}>
                 <div className="status-main" style={{ 
                     color: getColor(),
-                    textShadow: `0 0 25px ${getColor()}`
+                    textShadow: "none"
                 }}>
                     {status}
                 </div>

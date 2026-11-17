@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import io from 'socket.io-client';
+import axios from 'axios';
 import SignalCard from './SignalCard'; 
 import { SERVER_URL } from '../config';
 
@@ -10,6 +11,11 @@ const SignalFeed = () => {
     const [signals, setSignals] = useState([]);
 
     useEffect(() => {
+        // Load recent calls over HTTP first, so the wire isn't empty if the socket is slow or blocked
+        axios.get(`${SERVER_URL}/api/v1/intel/latest`)
+            .then(({ data }) => setSignals(prev => (prev.length ? prev : (Array.isArray(data) ? data : []))))
+            .catch(() => {});
+
         const socket = io(SERVER_URL);
 
         // Listeners
@@ -41,7 +47,7 @@ const SignalFeed = () => {
     return (
         <div className="panel feed-panel" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
             <div className="panel-header" style={{ marginBottom: '10px' }}>
-                INCOMING_DATA_STREAM
+                THE WIRE · <b>{signals.length}</b> LATEST CALLS
             </div>
             
             <div className="signal-scroll-area" style={{ flex: 1, overflowY: 'auto', paddingRight: '5px' }}>
@@ -51,9 +57,7 @@ const SignalFeed = () => {
                             <SignalCard key={sig.id || i} data={sig} />
                         ))
                     ) : (
-                        <div style={{ color: '#6b7280', fontSize: '12px', textAlign: 'center', marginTop: '20px', fontFamily: 'monospace' }}>
-                            ESTABLISHING UPLINK...
-                        </div>
+                        <div className="wire-empty">WAITING FOR THE FIRST CALL…</div>
                     )}
                 </div>
             </div>

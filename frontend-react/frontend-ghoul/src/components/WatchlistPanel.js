@@ -12,7 +12,7 @@ const ASSETS = [
 const WatchlistPanel = ({ activeSymbol, onSelect }) => {
     return (
         <div className="panel watchlist-panel" style={{ marginBottom: '20px', padding: '10px' }}>
-            <div className="panel-header">TARGET_ACQUISITION</div>
+            <div className="panel-header">WATCHLIST</div>
             <div className="watchlist-grid">
                 {ASSETS.map((asset) => (
                     <div 

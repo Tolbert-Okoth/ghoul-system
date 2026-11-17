@@ -52,7 +52,7 @@ const SmaDeviationPanel = ({ symbol }) => {
 
     return (
         <div className="panel sma-panel">
-            <div className="panel-header">MEAN_REVERSION // {symbol}</div>
+            <div className="panel-header">DISTANCE FROM 20-DAY AVG · <b>{symbol}</b></div>
             
             {loading ? (
                 <div className="loading-text">CALCULATING...</div>
@@ -62,7 +62,7 @@ const SmaDeviationPanel = ({ symbol }) => {
                         fontSize: '2.5rem', 
                         fontWeight: 'bold', 
                         color: getColor(),
-                        textShadow: `0 0 20px ${getColor()}`
+                        textShadow: "none", fontFamily: "var(--font-main)", letterSpacing: "0.02em"
                     }}>
                         {deviation > 0 ? "+" : ""}{deviation.toFixed(2)}%
                     </div>
