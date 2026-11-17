@@ -1,48 +1,89 @@
-# 💀 GHOUL SYSTEM: AI-Powered Market Intelligence
+# Ghoul System: Market Intelligence Dashboard
+
 <img width="1888" height="885" alt="Image" src="https://github.com/user-attachments/assets/4e3613b7-53a5-4309-b369-715ef86aee52" />
 
+**Built in 2025.** Ghoul System is a full-stack market-intelligence prototype. It pulls live prices and financial news, runs technical indicators and LLM sentiment analysis in a Python service, stores the resulting signals in PostgreSQL, and streams them to a real-time dashboard.
 
-**The Ghoul System** is an autonomous, full-stack market surveillance tool. It uses a dual-service architecture to scan financial news and technical data in real-time, feeding it into a Large Language Model (Groq AI) to generate trading signals with a "Cyberpunk" tactical dashboard.
+> **Prototype, not a trading system.** Signals combine technical indicators with LLM-generated sentiment and confidence scores. They have not been backtested or validated, and nothing here places trades. For my later, statistically validated research, see [propsim](https://github.com/Tolbert-Okoth/propfirm-pass-sim) and the [Hurst/DFA study](https://github.com/Tolbert-Okoth/Gold--hurst--daily-classifier).
 
-## ⚡ Features
+## What it does
 
-* **🧠 AI "Brain" (Python Microservice):** Analyzes market sentiment using Groq AI. Calculates technical indicators (RSI, MACD, Bollinger Bands) using Pandas/TA-Lib.
-* **🔌 "Body" (Node.js Backend):** Orchestrates data flow, manages WebSockets, and handles the "Spare Tire" data failover strategy (Alpaca IEX → Yahoo Finance → Simulation).
-* **👁️ "Face" (React Frontend):** A mobile-responsive, cyberpunk-themed dashboard with live charts, signal feeds, and real-time socket updates.
-* **🛡️ Self-Healing Database:** Includes an automated "Garbage Collector" that purges data older than 7 days to stay within free-tier storage limits.
-* **📱 Mobile Optimized:** Fully responsive layout with touch-friendly scrolling and stacked panels for Android/iOS.
+- **Data with failover:** prices come from Alpaca (IEX feed), fall back to Yahoo Finance, and finally to a simulation mode flagged with `isSimulated`, so the dashboard keeps working when a provider fails.
+- **Analysis service (Python):** computes RSI, MACD and Bollinger Bands with pandas/TA-Lib and asks an LLM (Groq) to summarise news sentiment.
+- **Orchestration (Node.js):** schedules scans, calls the Python service, saves signals to PostgreSQL and broadcasts updates over Socket.io.
+- **Retention job:** a scheduled cleanup deletes signals older than 7 days to stay within free-tier database limits.
+- **Dashboard (React):** live charts, a signal feed and real-time updates; responsive on mobile.
 
-## 🛠️ Tech Stack
+## Architecture
 
-### **Frontend**
-* **React.js** (Create React App)
-* **Recharts** (Interactive charting)
-* **Socket.io-client** (Real-time updates)
-* **CSS3** (Custom Cyberpunk/Neon design)
+```
+frontend-react  <--Socket.io/REST-->  backend-node  --HTTP-->  brain-python
+  (React,                             (Express,                (Flask, pandas,
+   Recharts)                           PostgreSQL)              TA-Lib, Groq)
+```
 
-### **Backend (The Manager)**
-* **Node.js & Express**
-* **Socket.io** (WebSocket server)
-* **PostgreSQL (`pg`)** (Data persistence)
-* **Alpaca API** (Primary data feed)
-* **Yahoo Finance** (Backup data feed)
-* **RSS Parser** (Live news scraping)
+## Tech stack
 
-### **AI Service (The Brain)**
-* **Python 3.10+**
-* **Flask** (API Interface)
-* **Groq API** (LLM Inference)
-* **Pandas & TA-Lib** (Technical Analysis)
-* **YFinance** (Technical data fetching)
+| Part | Technology |
+|---|---|
+| Frontend | React (Create React App), Recharts, Socket.io client |
+| Backend | Node.js, Express, Socket.io, PostgreSQL (`pg`), RSS parser |
+| Analysis service | Python, Flask, pandas, TA-Lib, yfinance, Groq API |
+| Data providers | Alpaca (primary), Yahoo Finance (backup) |
 
-## 🚀 Installation & Setup
+## Run locally
 
-### 1. Prerequisites
-* Node.js (v18+)
-* Python (v3.9+)
-* PostgreSQL Database (Local or Neon/Render)
+Requirements: Node.js 18+, Python 3.10+, PostgreSQL, and TA-Lib's C library (needed by the Python package).
 
-### 2. Clone the Repository
 ```bash
-git clone [https://github.com/yourusername/ghoul-system.git](https://github.com/yourusername/ghoul-system.git)
+git clone https://github.com/Tolbert-Okoth/ghoul-system.git
 cd ghoul-system
+
+# 1. Analysis service
+cd brain-python
+pip install -r requirements.txt
+python main.py                      # serves on PORT (default 5000)
+
+# 2. Backend (new terminal)
+cd backend-node
+npm install
+npm start
+
+# 3. Dashboard (new terminal)
+cd frontend-react/frontend-ghoul
+npm install
+npm start
+```
+
+### Environment variables
+
+**backend-node/.env**
+```env
+DATABASE_URL=postgres://user:password@host:5432/ghoul
+PYTHON_MICROSERVICE_URL=http://localhost:5000
+APCA_API_KEY_ID=your_alpaca_key
+APCA_API_SECRET_KEY=your_alpaca_secret
+FRONTEND_URL=http://localhost:3000
+PORT=4000
+```
+
+**brain-python/.env**
+```env
+GROQ_API_KEY=your_groq_key
+APCA_API_KEY_ID=your_alpaca_key
+APCA_API_SECRET_KEY=your_alpaca_secret
+FINNHUB_API_KEY=optional
+GEMINI_API_KEY=optional
+```
+
+The backend creates its `trading_signals` table on startup.
+
+## Known limitations
+
+- The admin reset route is protected only by a hard-coded query key; it needs proper authentication before any public deployment.
+- LLM confidence scores are model output, not calibrated probabilities.
+- The simulation fallback produces synthetic prices (returned with `isSimulated: true`); they should never be read as market data.
+
+## Author
+
+Built by **Tolbert Okoth**: [Portfolio](https://tolbert-portfolio.vercel.app) · [GitHub](https://github.com/Tolbert-Okoth) · [LinkedIn](https://www.linkedin.com/in/tolbert-asumba-542b3b344)
